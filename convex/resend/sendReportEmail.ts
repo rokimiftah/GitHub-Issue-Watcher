@@ -65,7 +65,9 @@ export const sendReportEmail = action({
 		} catch (error) {
 			throw new ConvexError(
 				error instanceof Error
-					? `Failed to send email: ${error.message}`
+					? error.message.includes("GitHub authentication failed")
+						? "Failed to send email due to invalid GITHUB_TOKEN."
+						: `Failed to send email: ${error.message}`
 					: "Unknown error sending email",
 			);
 		}

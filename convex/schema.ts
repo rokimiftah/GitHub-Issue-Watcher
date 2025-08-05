@@ -13,7 +13,6 @@ export default defineSchema({
 		email: v.optional(v.string()),
 		emailVerificationTime: v.optional(v.number()),
 		linkedProviders: v.optional(v.array(v.string())),
-		githubToken: v.optional(v.string()),
 	}).index("email", ["email"]),
 
 	reports: defineTable({
@@ -41,13 +40,4 @@ export default defineSchema({
 		.index("userEmail", ["userEmail"])
 		.index("userId", ["userId"])
 		.index("repoUrl_keyword", ["repoUrl", "keyword"]),
-
-	issueAnalysisCache: defineTable({
-		repoUrl: v.string(),
-		keyword: v.string(),
-		issueId: v.string(),
-		relevanceScore: v.number(),
-		explanation: v.string(),
-		analyzedAt: v.number(),
-	}).index("repoUrl_keyword_issueId", ["repoUrl", "keyword", "issueId"]),
 });

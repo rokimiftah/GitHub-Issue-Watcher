@@ -3,7 +3,6 @@ import { ConvexError, v } from "convex/values";
 
 import { graphql } from "@octokit/graphql";
 
-import { api } from "./_generated/api";
 import { action } from "./_generated/server";
 
 export const fetchIssuesBatch = action({
@@ -11,21 +10,11 @@ export const fetchIssuesBatch = action({
 		repoUrl: v.string(),
 		batchSize: v.number(),
 		after: v.optional(v.string()),
-		userId: v.optional(v.id("users")),
 	},
-	handler: async (ctx, args) => {
-		const { repoUrl, batchSize, after, userId } = args;
+	handler: async (_ctx, args) => {
+		const { repoUrl, batchSize, after } = args;
 
-		let githubToken = process.env.GITHUB_TOKEN;
-		if (userId) {
-			const user = await ctx.runQuery(api.users.getUserById, { userId });
-			if (user?.githubToken) {
-				console.log("Using user OAuth token");
-				githubToken = user.githubToken;
-			} else {
-				console.log("Falling back to app PAT");
-			}
-		}
+		const githubToken = process.env.GITHUB_TOKEN;
 		if (!githubToken) {
 			throw new ConvexError("GITHUB_TOKEN is not set");
 		}
@@ -122,11 +111,8 @@ export const fetchIssuesBatch = action({
 			};
 		} catch (error) {
 			if (error instanceof Error && error.message.includes("401")) {
-				console.error(
-					"GitHub API 401 Unauthorized - Token may be expired or invalid",
-				);
 				throw new ConvexError(
-					"GitHub authentication failed. Please log in again.",
+					"GitHub authentication failed. Please check the GITHUB_TOKEN.",
 				);
 			}
 			throw new ConvexError(

@@ -60,7 +60,7 @@ export function IssueForm({
 				error.data.includes("GitHub authentication failed")
 			) {
 				setError(
-					"GitHub authentication failed. Please sign out and sign in again with GitHub.",
+					"GitHub authentication failed. Please contact the administrator to verify the GITHUB_TOKEN.",
 				);
 			} else {
 				setError(
@@ -77,8 +77,8 @@ export function IssueForm({
 	return (
 		<div className="space-y-4">
 			<Text size="sm" c="dimmed" mb="md">
-				Sign in with GitHub to enable faster issue fetching and access
-				to private repositories.
+				Enter a GitHub repository URL and a keyword to generate an issue
+				report.
 			</Text>
 			{error && (
 				<Text c="red" mb="md" size="sm">

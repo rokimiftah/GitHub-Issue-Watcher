@@ -9,7 +9,6 @@
  */
 
 import type * as auth from "../auth.js";
-import type * as crons from "../crons.js";
 import type * as githubActions from "../githubActions.js";
 import type * as githubIssues from "../githubIssues.js";
 import type * as helpers from "../helpers.js";
@@ -36,7 +35,6 @@ import type {
  */
 declare const fullApi: ApiFromModules<{
   auth: typeof auth;
-  crons: typeof crons;
   githubActions: typeof githubActions;
   githubIssues: typeof githubIssues;
   helpers: typeof helpers;

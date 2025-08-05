@@ -37,6 +37,13 @@ export const saveReport = mutation({
 				"User must be authenticated to save a report",
 			);
 		}
+		if (
+			!/^https:\/\/github.com\/[a-zA-Z0-9-]+\/[a-zA-Z0-9-]+$/.test(
+				repoUrl,
+			)
+		) {
+			throw new ConvexError("Invalid GitHub repository URL");
+		}
 		try {
 			const reportId: Id<"reports"> = await ctx.db.insert("reports", {
 				repoUrl,
@@ -133,25 +140,6 @@ export const getReportByRepoAndKeyword = query({
 	},
 });
 
-export const getCachedAnalysis = query({
-	args: {
-		repoUrl: v.string(),
-		keyword: v.string(),
-		issueId: v.string(),
-	},
-	handler: async (ctx, args) => {
-		return await ctx.db
-			.query("issueAnalysisCache")
-			.withIndex("repoUrl_keyword_issueId", (q) =>
-				q
-					.eq("repoUrl", args.repoUrl)
-					.eq("keyword", args.keyword)
-					.eq("issueId", args.issueId),
-			)
-			.first();
-	},
-});
-
 export const storeIssues = action({
 	args: {
 		repoUrl: v.string(),
@@ -164,6 +152,13 @@ export const storeIssues = action({
 		const userId = await getAuthUserId(ctx);
 		if (!userId) {
 			throw new ConvexError("User must be authenticated");
+		}
+		if (
+			!/^https:\/\/github.com\/[a-zA-Z0-9-]+\/[a-zA-Z0-9-]+$/.test(
+				repoUrl,
+			)
+		) {
+			throw new ConvexError("Invalid GitHub repository URL");
 		}
 
 		try {
@@ -188,39 +183,15 @@ export const storeIssues = action({
 					repoUrl,
 					batchSize,
 					after: existingReport?.batchCursor,
-					userId,
 				},
 			);
-
-			const updatedIssues = [];
-			for (const issue of issues) {
-				const cachedAnalysis = await ctx.runQuery(
-					api.githubIssues.getCachedAnalysis,
-					{
-						repoUrl,
-						keyword,
-						issueId: issue.id,
-					},
-				);
-				updatedIssues.push(
-					cachedAnalysis &&
-						Date.now() - cachedAnalysis.analyzedAt <
-							24 * 60 * 60 * 1000
-						? {
-								...issue,
-								relevanceScore: cachedAnalysis.relevanceScore,
-								explanation: cachedAnalysis.explanation,
-							}
-						: issue,
-				);
-			}
 
 			let reportId: Id<"reports">;
 			if (existingReport) {
 				reportId = existingReport._id;
 				await ctx.runMutation(api.githubIssues.updateReport, {
 					reportId,
-					issues: [...existingReport.issues, ...updatedIssues],
+					issues: [...existingReport.issues, ...issues],
 					batchCursor: pageInfo.hasNextPage
 						? pageInfo.endCursor
 						: undefined,
@@ -231,7 +202,7 @@ export const storeIssues = action({
 					repoUrl,
 					keyword,
 					userEmail,
-					issues: updatedIssues,
+					issues,
 					batchCursor: pageInfo.hasNextPage
 						? pageInfo.endCursor
 						: undefined,
@@ -272,7 +243,6 @@ export const processNextBatch = action({
 		}
 
 		const batchSize = 100;
-		const userId = report.userId;
 
 		const { issues, pageInfo } = await ctx.runAction(
 			api.githubActions.fetchIssuesBatch,
@@ -280,35 +250,12 @@ export const processNextBatch = action({
 				repoUrl: report.repoUrl,
 				batchSize,
 				after: report.batchCursor,
-				userId,
 			},
 		);
 
-		const updatedIssues = [];
-		for (const issue of issues) {
-			const cachedAnalysis = await ctx.runQuery(
-				api.githubIssues.getCachedAnalysis,
-				{
-					repoUrl: report.repoUrl,
-					keyword: report.keyword,
-					issueId: issue.id,
-				},
-			);
-			updatedIssues.push(
-				cachedAnalysis &&
-					Date.now() - cachedAnalysis.analyzedAt < 24 * 60 * 60 * 1000
-					? {
-							...issue,
-							relevanceScore: cachedAnalysis.relevanceScore,
-							explanation: cachedAnalysis.explanation,
-						}
-					: issue,
-			);
-		}
-
 		await ctx.runMutation(api.githubIssues.updateReport, {
 			reportId: args.reportId,
-			issues: [...report.issues, ...updatedIssues],
+			issues: [...report.issues, ...issues],
 			batchCursor: pageInfo.hasNextPage ? pageInfo.endCursor : undefined,
 			isComplete: !pageInfo.hasNextPage,
 		});

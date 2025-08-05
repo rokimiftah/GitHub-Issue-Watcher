@@ -1,10 +1,9 @@
 // convex/llmAnalysis.ts
-
 import { ConvexError, v } from "convex/values";
 import Groq from "groq-sdk";
 
 import { api } from "./_generated/api";
-import { action, internalMutation, mutation } from "./_generated/server";
+import { action } from "./_generated/server";
 
 interface Issue {
 	id: string;
@@ -16,35 +15,6 @@ interface Issue {
 	relevanceScore: number;
 	explanation: string;
 }
-
-export const saveAnalysisCache = mutation({
-	args: {
-		repoUrl: v.string(),
-		keyword: v.string(),
-		issueId: v.string(),
-		relevanceScore: v.number(),
-		explanation: v.string(),
-		analyzedAt: v.number(),
-	},
-	handler: async (ctx, args) => {
-		try {
-			await ctx.db.insert("issueAnalysisCache", {
-				repoUrl: args.repoUrl,
-				keyword: args.keyword,
-				issueId: args.issueId,
-				relevanceScore: args.relevanceScore,
-				explanation: args.explanation,
-				analyzedAt: args.analyzedAt,
-			});
-		} catch (error) {
-			throw new ConvexError(
-				error instanceof Error
-					? `Failed to save analysis cache: ${error.message}`
-					: "Unknown error saving analysis cache",
-			);
-		}
-	},
-});
 
 export const analyzeIssues = action({
 	args: {
@@ -69,27 +39,6 @@ export const analyzeIssues = action({
 		const updatedIssues: Issue[] = [];
 
 		for (const issue of report.issues as Issue[]) {
-			const cachedAnalysis = await ctx.runQuery(
-				api.githubIssues.getCachedAnalysis,
-				{
-					repoUrl: report.repoUrl,
-					keyword,
-					issueId: issue.id,
-				},
-			);
-
-			if (
-				cachedAnalysis &&
-				Date.now() - cachedAnalysis.analyzedAt < 24 * 60 * 60 * 1000
-			) {
-				updatedIssues.push({
-					...issue,
-					relevanceScore: cachedAnalysis.relevanceScore,
-					explanation: cachedAnalysis.explanation,
-				});
-				continue;
-			}
-
 			try {
 				const prompt = `
           Analyze the following GitHub issue for relevance to the keyword "${keyword}".
@@ -126,15 +75,6 @@ export const analyzeIssues = action({
 					throw new Error("Invalid explanation from Groq API");
 				}
 
-				await ctx.runMutation(api.llmAnalysis.saveAnalysisCache, {
-					repoUrl: report.repoUrl,
-					keyword,
-					issueId: issue.id,
-					relevanceScore,
-					explanation,
-					analyzedAt: Date.now(),
-				});
-
 				updatedIssues.push({
 					...issue,
 					relevanceScore,
@@ -157,20 +97,5 @@ export const analyzeIssues = action({
 		});
 
 		return updatedIssues;
-	},
-});
-
-export const cleanExpiredCache = internalMutation({
-	args: {},
-	handler: async (ctx) => {
-		const expiredCaches = await ctx.db
-			.query("issueAnalysisCache")
-			.filter((q) =>
-				q.lt(q.field("analyzedAt"), Date.now() - 24 * 60 * 60 * 1000),
-			)
-			.collect();
-		for (const cache of expiredCaches) {
-			await ctx.db.delete(cache._id);
-		}
 	},
 });

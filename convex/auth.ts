@@ -1,4 +1,6 @@
 // convex/auth.ts
+/** biome-ignore-all lint/suspicious/noExplicitAny: <> */
+
 import type { MutationCtx } from "./_generated/server";
 
 import { ConvexError } from "convex/values";
@@ -30,6 +32,12 @@ export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
 				if (typeof params.email !== "string") {
 					throw new ConvexError("Email is required");
 				}
+				if (
+					typeof params.id !== "string" &&
+					typeof params.id !== "number"
+				) {
+					throw new ConvexError("GitHub user ID is required");
+				}
 				const normalizedEmail = params.email.toLowerCase().trim();
 				const { error, data } = z
 					.object({
@@ -40,8 +48,8 @@ export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
 					throw new ConvexError(error.issues[0].message);
 				}
 				return {
+					id: String(params.id), // Konversi ID ke string
 					email: data.email,
-					githubToken: params.access_token,
 				};
 			},
 		}),
@@ -62,7 +70,7 @@ export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
 				if (error) {
 					throw new ConvexError(error.issues[0].message);
 				}
-				return { email: data.email };
+				return { id: data.email, email: data.email }; // Menggunakan email sebagai ID untuk Password provider
 			},
 			validatePasswordRequirements: (password: string) => {
 				const result = PasswordSchema.safeParse(password);
@@ -73,12 +81,9 @@ export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
 		}),
 	],
 	callbacks: {
-		// biome-ignore lint/suspicious/noExplicitAny: <args>
 		async createOrUpdateUser(ctx: MutationCtx, args: any) {
 			const normalizedEmail = args.profile.email.toLowerCase().trim();
 			const provider = args.type === "oauth" ? "github" : "password";
-			const githubToken =
-				args.type === "oauth" ? args.profile.githubToken : undefined;
 
 			const existingUser = await ctx.db
 				.query("users")
@@ -87,7 +92,6 @@ export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
 
 			if (existingUser) {
 				const currentProviders = existingUser.linkedProviders || [];
-				// biome-ignore lint/suspicious/noExplicitAny: <updates>
 				const updates: any = {};
 				if (!currentProviders.includes(provider)) {
 					updates.linkedProviders = [...currentProviders, provider];
@@ -97,9 +101,6 @@ export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
 					!existingUser.emailVerificationTime
 				) {
 					updates.emailVerificationTime = Date.now();
-				}
-				if (args.type === "oauth" && githubToken) {
-					updates.githubToken = githubToken;
 				}
 				if (Object.keys(updates).length > 0) {
 					await ctx.db.patch(existingUser._id, updates);
@@ -112,7 +113,6 @@ export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
 				emailVerificationTime:
 					args.type === "oauth" ? Date.now() : undefined,
 				linkedProviders: [provider],
-				githubToken,
 			});
 
 			return userId;
