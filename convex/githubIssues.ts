@@ -148,85 +148,67 @@ export const storeIssues = action({
 	},
 	handler: async (ctx, args): Promise<Id<"reports">> => {
 		const { repoUrl, keyword, userEmail } = args;
-		const batchSize = 100;
 		const userId = await getAuthUserId(ctx);
-		if (!userId) {
-			throw new ConvexError("User must be authenticated");
-		}
-		if (
-			!/^https:\/\/github.com\/[a-zA-Z0-9-]+\/[a-zA-Z0-9-]+$/.test(
-				repoUrl,
-			)
-		) {
+		if (!userId) throw new ConvexError("User must be authenticated");
+
+		// Validasi URL
+		if (!/^https:\/\/github\.com\/[\w-]+\/[\w-]+$/.test(repoUrl)) {
 			throw new ConvexError("Invalid GitHub repository URL");
 		}
 
-		try {
-			const existingReport = await ctx.runQuery(
-				api.githubIssues.getReportByRepoAndKeyword,
-				{
-					repoUrl,
-					keyword,
-				},
-			);
-
-			if (
-				existingReport?.isComplete &&
-				Date.now() - existingReport.lastFetched < 1 * 60 * 60 * 1000
-			) {
-				return existingReport._id;
-			}
-
-			const { issues, pageInfo } = await ctx.runAction(
-				api.githubActions.fetchIssuesBatch,
-				{
-					repoUrl,
-					batchSize,
-					after: existingReport?.batchCursor,
-				},
-			);
-
-			let reportId: Id<"reports">;
-			if (existingReport) {
-				reportId = existingReport._id;
-				await ctx.runMutation(api.githubIssues.updateReport, {
-					reportId,
-					issues: [...existingReport.issues, ...issues],
-					batchCursor: pageInfo.hasNextPage
-						? pageInfo.endCursor
-						: undefined,
-					isComplete: !pageInfo.hasNextPage,
-				});
-			} else {
-				reportId = await ctx.runMutation(api.githubIssues.saveReport, {
-					repoUrl,
-					keyword,
-					userEmail,
-					issues,
-					batchCursor: pageInfo.hasNextPage
-						? pageInfo.endCursor
-						: undefined,
-					isComplete: !pageInfo.hasNextPage,
-				});
-			}
-
-			await ctx.runAction(api.llmAnalysis.analyzeIssues, {
-				reportId,
-				keyword,
-			});
-
-			await ctx.runAction(api.resend.sendReportEmail.sendReportEmail, {
-				reportId,
-			});
-
-			return reportId;
-		} catch (error) {
-			throw new ConvexError(
-				error instanceof Error
-					? `Failed to process issues: ${error.message}`
-					: "Unknown error processing issues",
-			);
+		// Cek cache
+		const existingReport = await ctx.runQuery(
+			api.githubIssues.getReportByRepoAndKeyword,
+			{ repoUrl, keyword },
+		);
+		if (
+			existingReport?.isComplete &&
+			Date.now() - existingReport.lastFetched < 1 * 60 * 60 * 1000
+		) {
+			return existingReport._id;
 		}
+
+		// Ambil batch pertama saja
+		const { issues, pageInfo } = await ctx.runAction(
+			api.githubActions.fetchIssuesBatch,
+			{
+				repoUrl,
+				batchSize: 50,
+				after: existingReport?.batchCursor,
+			},
+		);
+
+		let reportId: Id<"reports">;
+		if (existingReport) {
+			reportId = existingReport._id;
+			await ctx.runMutation(api.githubIssues.updateReport, {
+				reportId,
+				issues: [...existingReport.issues, ...issues],
+				batchCursor: pageInfo.hasNextPage
+					? pageInfo.endCursor
+					: undefined,
+				isComplete: !pageInfo.hasNextPage,
+			});
+		} else {
+			reportId = await ctx.runMutation(api.githubIssues.saveReport, {
+				repoUrl,
+				keyword,
+				userEmail,
+				issues,
+				batchCursor: pageInfo.hasNextPage
+					? pageInfo.endCursor
+					: undefined,
+				isComplete: !pageInfo.hasNextPage,
+			});
+		}
+
+		// ⭐ Mulai analisis & pengiriman email secara async
+		await ctx.scheduler.runAfter(0, api.llmAnalysis.analyzeIssues, {
+			reportId,
+			keyword,
+		});
+
+		return reportId;
 	},
 });
 

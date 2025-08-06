@@ -5,17 +5,6 @@ import Groq from "groq-sdk";
 import { api } from "./_generated/api";
 import { action } from "./_generated/server";
 
-interface Issue {
-	id: string;
-	number: number;
-	title: string;
-	body: string;
-	labels: string[];
-	createdAt: string;
-	relevanceScore: number;
-	explanation: string;
-}
-
 export const analyzeIssues = action({
 	args: {
 		reportId: v.id("reports"),
@@ -26,33 +15,45 @@ export const analyzeIssues = action({
 		const report = await ctx.runQuery(api.githubIssues.getReport, {
 			reportId,
 		});
-		if (!report) {
-			throw new ConvexError("Report not found");
-		}
+		if (!report) throw new ConvexError("Report not found");
 
 		const groqApiKey = process.env.GROQ_API_KEY;
-		if (!groqApiKey) {
-			throw new ConvexError("GROQ_API_KEY is not set");
-		}
+		if (!groqApiKey) throw new ConvexError("GROQ_API_KEY is not set");
 
 		const groq = new Groq({ apiKey: groqApiKey });
-		const updatedIssues: Issue[] = [];
 
-		for (const issue of report.issues as Issue[]) {
+		// Ambil 20 issue yang belum dianalisis
+		const issuesToAnalyze = report.issues
+			.filter(
+				(issue) =>
+					issue.relevanceScore === 0 && issue.explanation === "",
+			)
+			.slice(0, 20);
+
+		if (issuesToAnalyze.length === 0) {
+			// Semua sudah dianalisis
+			await ctx.runAction(api.resend.sendReportEmail.sendReportEmail, {
+				reportId,
+			});
+			return;
+		}
+
+		const updatedIssues = [...report.issues];
+
+		for (const issue of issuesToAnalyze) {
 			try {
 				const prompt = `
           Analyze the following GitHub issue for relevance to the keyword "${keyword}".
           Issue Title: ${issue.title}
           Issue Body: ${issue.body || "No body provided"}
-          
           Provide a JSON response with:
-          - relevanceScore: A number between 0 and 100 indicating relevance.
-          - explanation: A short explanation (1-2 sentences) of why the issue is relevant or not.
+          - relevanceScore: A number between 0 and 100.
+          - explanation: A short 1-2 sentence explanation.
         `;
 
 				const chatCompletion = await groq.chat.completions.create({
 					messages: [{ role: "user", content: prompt }],
-					model: "moonshotai/kimi-k2-instruct",
+					model: "llama-3.1-8b-instant",
 					response_format: { type: "json_object" },
 				});
 
@@ -61,31 +62,29 @@ export const analyzeIssues = action({
 				);
 				const { relevanceScore, explanation } = result;
 
-				if (
-					typeof relevanceScore !== "number" ||
-					relevanceScore < 0 ||
-					relevanceScore > 100
-				) {
-					throw new Error("Invalid relevanceScore from Groq API");
+				const index = updatedIssues.findIndex((i) => i.id === issue.id);
+				if (index !== -1) {
+					updatedIssues[index] = {
+						...updatedIssues[index],
+						relevanceScore:
+							typeof relevanceScore === "number"
+								? relevanceScore
+								: 0,
+						explanation:
+							typeof explanation === "string"
+								? explanation
+								: "No explanation",
+					};
 				}
-				if (
-					typeof explanation !== "string" ||
-					explanation.length === 0
-				) {
-					throw new Error("Invalid explanation from Groq API");
+			} catch {
+				const index = updatedIssues.findIndex((i) => i.id === issue.id);
+				if (index !== -1) {
+					updatedIssues[index] = {
+						...updatedIssues[index],
+						relevanceScore: 0,
+						explanation: "Analysis failed",
+					};
 				}
-
-				updatedIssues.push({
-					...issue,
-					relevanceScore,
-					explanation,
-				});
-			} catch (_error) {
-				updatedIssues.push({
-					...issue,
-					relevanceScore: 0,
-					explanation: "Analysis failed due to API error.",
-				});
 			}
 		}
 
@@ -96,6 +95,21 @@ export const analyzeIssues = action({
 			isComplete: report.isComplete,
 		});
 
-		return updatedIssues;
+		// ⭐ Jika masih ada issue yang belum dianalisis, lanjutkan
+		const remaining = updatedIssues.filter(
+			(issue) => issue.relevanceScore === 0 && issue.explanation === "",
+		).length;
+
+		if (remaining > 0) {
+			await ctx.scheduler.runAfter(0, api.llmAnalysis.analyzeIssues, {
+				reportId,
+				keyword,
+			});
+		} else {
+			// Semua sudah dianalisis
+			await ctx.runAction(api.resend.sendReportEmail.sendReportEmail, {
+				reportId,
+			});
+		}
 	},
 });
