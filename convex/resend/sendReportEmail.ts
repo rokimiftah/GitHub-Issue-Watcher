@@ -25,42 +25,71 @@ export const resend: Resend = new Resend(components.resend, {
 });
 
 export const sendReportEmail = action({
-	args: {
-		reportId: v.id("reports"),
-	},
+	args: { reportId: v.id("reports") },
 	handler: async (ctx, args) => {
 		const report = (await ctx.runQuery(api.githubIssues.getReport, {
 			reportId: args.reportId,
 		})) as Doc<"reports"> | null;
-		if (!report) {
-			throw new ConvexError("Report not found");
+		if (!report) throw new ConvexError("Report not found");
+
+		const relevantIssues = report.issues
+			.filter((issue: Issue) => issue.relevanceScore > 50)
+			.sort((a, b) => b.relevanceScore - a.relevanceScore);
+
+		if (relevantIssues.length === 0) {
+			console.log(
+				`[EMAIL EMPTY] No relevant issues for ${report.repoUrl}`,
+			);
+			// Lanjutkan ke batch berikutnya walaupun kosong
+			if (!report.isComplete && report.batchCursor) {
+				await ctx.scheduler.runAfter(
+					0,
+					api.githubIssues.processNextBatch,
+					{
+						reportId: args.reportId,
+					},
+				);
+			}
+			return;
 		}
 
+		const emailsSent = report.emailsSent || 0;
+		const emailType = report.isComplete ? "Final" : "Partial";
+		const batchNumber =
+			report.isComplete && emailsSent === 0 ? "" : ` - ${emailsSent + 1}`;
+
 		try {
-			const relevantIssues = report.issues
-				.filter((issue: Issue) => issue.relevanceScore > 50)
-				.sort((a, b) => b.relevanceScore - a.relevanceScore);
+			const html = await renderIssueReportEmail({
+				repoUrl: report.repoUrl,
+				keyword: report.keyword,
+				userEmail: report.userEmail,
+				issues: relevantIssues,
+			});
 
-			if (relevantIssues.length > 0) {
-				const html = await renderIssueReportEmail({
-					repoUrl: report.repoUrl,
-					keyword: report.keyword,
-					userEmail: report.userEmail,
-					issues: relevantIssues,
-				});
+			await resend.sendEmail(ctx, {
+				from: "GitHub Issue Watcher <notification@giw.rokimiftah.id>",
+				to: report.userEmail,
+				subject: `GIW - GitHub Issues Report for ${report.repoUrl} (${emailType}${batchNumber})`,
+				html,
+			});
 
-				await resend.sendEmail(ctx, {
-					from: "GitHub Issue Watcher <notification@giw.rokimiftah.id>",
-					to: report.userEmail,
-					subject: `GIW - GitHub Issues Report for ${report.repoUrl} (${report.isComplete ? "Complete" : "Partial"})`,
-					html,
-				});
-			}
+			await ctx.runMutation(api.githubIssues.incrementEmailsSent, {
+				reportId: args.reportId,
+			});
 
+			console.log(
+				`[EMAIL SENT] ${emailType}${batchNumber} - ${relevantIssues.length} issues`,
+			);
+
+			// Lanjutkan fetch berikutnya jika masih ada halaman
 			if (!report.isComplete && report.batchCursor) {
-				await ctx.runAction(api.githubIssues.processNextBatch, {
-					reportId: args.reportId,
-				});
+				await ctx.scheduler.runAfter(
+					0,
+					api.githubIssues.processNextBatch,
+					{
+						reportId: args.reportId,
+					},
+				);
 			}
 		} catch (error) {
 			throw new ConvexError(

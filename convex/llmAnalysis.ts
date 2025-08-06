@@ -1,15 +1,29 @@
 // convex/llmAnalysis.ts
+/** biome-ignore-all lint/suspicious/noExplicitAny: <> */
+
 import { ConvexError, v } from "convex/values";
 import Groq from "groq-sdk";
 
 import { api } from "./_generated/api";
 import { action } from "./_generated/server";
 
+const ISSUES_PER_BATCH = 1;
+const DELAY_MS = 1_000;
+
+const MODELS = [
+	process.env.GROQ_MODEL_1,
+	process.env.GROQ_MODEL_2,
+	process.env.GROQ_MODEL_3,
+	process.env.GROQ_MODEL_4,
+	process.env.GROQ_MODEL_5,
+];
+
+function pickModel(counter: number): string {
+	return MODELS[counter % MODELS.length] as string;
+}
+
 export const analyzeIssues = action({
-	args: {
-		reportId: v.id("reports"),
-		keyword: v.string(),
-	},
+	args: { reportId: v.id("reports"), keyword: v.string() },
 	handler: async (ctx, args) => {
 		const { reportId, keyword } = args;
 		const report = await ctx.runQuery(api.githubIssues.getReport, {
@@ -19,19 +33,16 @@ export const analyzeIssues = action({
 
 		const groqApiKey = process.env.GROQ_API_KEY;
 		if (!groqApiKey) throw new ConvexError("GROQ_API_KEY is not set");
-
 		const groq = new Groq({ apiKey: groqApiKey });
 
-		// Ambil 20 issue yang belum dianalisis
+		const counter = report.requestCounter || 0;
+		const model = pickModel(counter);
+
 		const issuesToAnalyze = report.issues
-			.filter(
-				(issue) =>
-					issue.relevanceScore === 0 && issue.explanation === "",
-			)
-			.slice(0, 20);
+			.filter((i) => i.relevanceScore === 0 && i.explanation === "")
+			.slice(0, ISSUES_PER_BATCH);
 
 		if (issuesToAnalyze.length === 0) {
-			// Semua sudah dianalisis
 			await ctx.runAction(api.resend.sendReportEmail.sendReportEmail, {
 				reportId,
 			});
@@ -43,50 +54,58 @@ export const analyzeIssues = action({
 		for (const issue of issuesToAnalyze) {
 			try {
 				const prompt = `
-          Analyze the following GitHub issue for relevance to the keyword "${keyword}".
-          Issue Title: ${issue.title}
-          Issue Body: ${issue.body || "No body provided"}
-          Provide a JSON response with:
-          - relevanceScore: A number between 0 and 100.
-          - explanation: A short 1-2 sentence explanation.
-        `;
+Analyze the following GitHub issue for relevance to the keyword "${keyword}".
+Issue Title: ${issue.title}
+Issue Body: ${issue.body || "No body provided"}
+
+Return ONLY valid JSON:
+{"relevanceScore": 0-100, "explanation": "short 1-2 sentence reason"}
+`.trim();
 
 				const chatCompletion = await groq.chat.completions.create({
 					messages: [{ role: "user", content: prompt }],
-					model: "llama-3.1-8b-instant",
-					response_format: { type: "json_object" },
+					model,
 				});
 
-				const result = JSON.parse(
-					chatCompletion.choices[0]?.message?.content || "{}",
-				);
-				const { relevanceScore, explanation } = result;
+				const raw = chatCompletion.choices[0]?.message?.content || "{}";
+				const parsed = JSON.parse(raw) as {
+					relevanceScore?: unknown;
+					explanation?: unknown;
+				};
 
-				const index = updatedIssues.findIndex((i) => i.id === issue.id);
-				if (index !== -1) {
-					updatedIssues[index] = {
-						...updatedIssues[index],
-						relevanceScore:
-							typeof relevanceScore === "number"
-								? relevanceScore
-								: 0,
-						explanation:
-							typeof explanation === "string"
-								? explanation
-								: "No explanation",
+				const relevanceScore =
+					typeof parsed.relevanceScore === "number"
+						? Math.max(0, Math.min(100, parsed.relevanceScore))
+						: 0;
+
+				const explanation =
+					typeof parsed.explanation === "string"
+						? parsed.explanation
+						: "No explanation";
+
+				const idx = updatedIssues.findIndex((i) => i.id === issue.id);
+				if (idx !== -1) {
+					updatedIssues[idx] = {
+						...updatedIssues[idx],
+						relevanceScore,
+						explanation,
 					};
 				}
 			} catch {
-				const index = updatedIssues.findIndex((i) => i.id === issue.id);
-				if (index !== -1) {
-					updatedIssues[index] = {
-						...updatedIssues[index],
+				const idx = updatedIssues.findIndex((i) => i.id === issue.id);
+				if (idx !== -1) {
+					updatedIssues[idx] = {
+						...updatedIssues[idx],
 						relevanceScore: 0,
 						explanation: "Analysis failed",
 					};
 				}
 			}
 		}
+
+		await ctx.runMutation(api.githubIssues.incrementRequestCounter, {
+			reportId,
+		});
 
 		await ctx.runMutation(api.githubIssues.updateReport, {
 			reportId,
@@ -95,18 +114,20 @@ export const analyzeIssues = action({
 			isComplete: report.isComplete,
 		});
 
-		// ⭐ Jika masih ada issue yang belum dianalisis, lanjutkan
 		const remaining = updatedIssues.filter(
-			(issue) => issue.relevanceScore === 0 && issue.explanation === "",
+			(i) => i.relevanceScore === 0 && i.explanation === "",
 		).length;
 
 		if (remaining > 0) {
-			await ctx.scheduler.runAfter(0, api.llmAnalysis.analyzeIssues, {
-				reportId,
-				keyword,
-			});
+			await ctx.scheduler.runAfter(
+				DELAY_MS,
+				api.llmAnalysis.analyzeIssues,
+				{
+					reportId,
+					keyword,
+				},
+			);
 		} else {
-			// Semua sudah dianalisis
 			await ctx.runAction(api.resend.sendReportEmail.sendReportEmail, {
 				reportId,
 			});

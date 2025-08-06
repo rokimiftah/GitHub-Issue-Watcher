@@ -48,7 +48,7 @@ export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
 					throw new ConvexError(error.issues[0].message);
 				}
 				return {
-					id: String(params.id), // Konversi ID ke string
+					id: String(params.id),
 					email: data.email,
 				};
 			},
@@ -70,7 +70,7 @@ export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
 				if (error) {
 					throw new ConvexError(error.issues[0].message);
 				}
-				return { id: data.email, email: data.email }; // Menggunakan email sebagai ID untuk Password provider
+				return { id: data.email, email: data.email };
 			},
 			validatePasswordRequirements: (password: string) => {
 				const result = PasswordSchema.safeParse(password);

@@ -14,12 +14,14 @@ interface IssueFormProps {
 	onReportGenerated: (reportId: Id<"reports">) => void;
 	isAnalysisRunning: boolean;
 	setIsAnalysisRunning: (isRunning: boolean) => void;
+	disabled?: boolean;
 }
 
 export function IssueForm({
 	onReportGenerated,
 	isAnalysisRunning,
 	setIsAnalysisRunning,
+	disabled = false,
 }: IssueFormProps) {
 	const storeIssues = useAction(api.githubIssues.storeIssues);
 	const currentUser = useQuery(api.users.getCurrentUser);
@@ -104,7 +106,9 @@ export function IssueForm({
 					<Button
 						type="submit"
 						loading={isAnalysisRunning}
-						disabled={isAnalysisRunning || !currentUser?.email}
+						disabled={
+							isAnalysisRunning || !currentUser?.email || disabled
+						}
 						className="bg-[#f5d90a] text-[#111110] transition-all duration-200 hover:bg-[#f5d90ae6]"
 					>
 						{isAnalysisRunning

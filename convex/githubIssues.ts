@@ -84,6 +84,7 @@ export const updateReport = mutation({
 		),
 		batchCursor: v.optional(v.string()),
 		isComplete: v.boolean(),
+		requestCounter: v.optional(v.number()),
 	},
 	handler: async (ctx, args) => {
 		const { reportId, issues, batchCursor, isComplete } = args;
@@ -151,12 +152,10 @@ export const storeIssues = action({
 		const userId = await getAuthUserId(ctx);
 		if (!userId) throw new ConvexError("User must be authenticated");
 
-		// Validasi URL
 		if (!/^https:\/\/github\.com\/[\w-]+\/[\w-]+$/.test(repoUrl)) {
 			throw new ConvexError("Invalid GitHub repository URL");
 		}
 
-		// Cek cache
 		const existingReport = await ctx.runQuery(
 			api.githubIssues.getReportByRepoAndKeyword,
 			{ repoUrl, keyword },
@@ -168,7 +167,6 @@ export const storeIssues = action({
 			return existingReport._id;
 		}
 
-		// Ambil batch pertama saja
 		const { issues, pageInfo } = await ctx.runAction(
 			api.githubActions.fetchIssuesBatch,
 			{
@@ -202,7 +200,6 @@ export const storeIssues = action({
 			});
 		}
 
-		// ⭐ Mulai analisis & pengiriman email secara async
 		await ctx.scheduler.runAfter(0, api.llmAnalysis.analyzeIssues, {
 			reportId,
 			keyword,
@@ -213,9 +210,7 @@ export const storeIssues = action({
 });
 
 export const processNextBatch = action({
-	args: {
-		reportId: v.id("reports"),
-	},
+	args: { reportId: v.id("reports") },
 	handler: async (ctx, args) => {
 		const report = await ctx.runQuery(api.githubIssues.getReport, {
 			reportId: args.reportId,
@@ -249,6 +244,44 @@ export const processNextBatch = action({
 
 		await ctx.runAction(api.resend.sendReportEmail.sendReportEmail, {
 			reportId: args.reportId,
+		});
+	},
+});
+
+export const incrementEmailsSent = mutation({
+	args: { reportId: v.id("reports") },
+	handler: async (ctx, args) => {
+		const report = await ctx.db.get(args.reportId);
+		if (!report) throw new ConvexError("Report not found");
+		await ctx.db.patch(args.reportId, {
+			emailsSent: (report.emailsSent || 0) + 1,
+		});
+	},
+});
+
+export const checkIncompleteReport = query({
+	args: {},
+	handler: async (ctx) => {
+		const userId = await getAuthUserId(ctx);
+		if (!userId) return { hasIncomplete: false };
+
+		const incomplete = await ctx.db
+			.query("reports")
+			.withIndex("userId", (q) => q.eq("userId", userId))
+			.filter((q) => q.eq(q.field("isComplete"), false))
+			.first();
+
+		return { hasIncomplete: !!incomplete };
+	},
+});
+
+export const incrementRequestCounter = mutation({
+	args: { reportId: v.id("reports") },
+	handler: async (ctx, args) => {
+		const report = await ctx.db.get(args.reportId);
+		if (!report) return;
+		await ctx.db.patch(args.reportId, {
+			requestCounter: (report.requestCounter || 0) + 1,
 		});
 	},
 });

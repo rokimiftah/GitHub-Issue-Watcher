@@ -19,7 +19,6 @@ export function IssuesTable({ reportId }: IssuesTableProps) {
 		.filter((issue) => issue.relevanceScore > 50)
 		.sort((a, b) => b.relevanceScore - a.relevanceScore);
 
-	// Tambahkan pesan jika tidak ada isu yang relevan
 	if (filteredIssues.length === 0) {
 		return (
 			<Text ta="center" my="md" mt="xl">

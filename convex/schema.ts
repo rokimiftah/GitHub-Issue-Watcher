@@ -36,8 +36,16 @@ export default defineSchema({
 		lastFetched: v.number(),
 		batchCursor: v.optional(v.string()),
 		isComplete: v.boolean(),
+		emailsSent: v.optional(v.number()),
+		requestCounter: v.optional(v.number()),
 	})
 		.index("userEmail", ["userEmail"])
 		.index("userId", ["userId"])
 		.index("repoUrl_keyword", ["repoUrl", "keyword"]),
+
+	dailyUsage: defineTable({
+		date: v.string(),
+		requests: v.number(),
+		tokens: v.number(),
+	}).index("date", ["date"]),
 });

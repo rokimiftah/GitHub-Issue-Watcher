@@ -1,9 +1,11 @@
 // src/components/dashboard/ui/IssueFormModal.tsx
-import type { Id } from "@convex/_generated/dataModel";
-
 import { useState } from "react";
 
+import { useQuery } from "convex/react";
+
+import { api } from "@convex/_generated/api";
 import {
+	Alert,
 	Button,
 	Center,
 	Loader,
@@ -15,20 +17,25 @@ import {
 import { IssueForm } from "./IssueForm";
 
 interface IssueFormModalProps {
-	onReportGenerated: (reportId: Id<"reports">) => void;
+	onReportGenerated: (reportId: string) => void;
 }
 
 export function IssueFormModal({ onReportGenerated }: IssueFormModalProps) {
 	const [opened, setOpened] = useState(false);
 	const [isAnalysisRunning, setIsAnalysisRunning] = useState(false);
 
+	const { hasIncomplete } = useQuery(
+		api.githubIssues.checkIncompleteReport,
+	) ?? { hasIncomplete: false };
+
 	return (
 		<>
 			<Button
 				onClick={() => setOpened(true)}
+				disabled={hasIncomplete || isAnalysisRunning}
 				className="bg-[#f5d90a] text-[#111110] transition-all duration-200 hover:bg-[#f5d90ae6]"
 			>
-				Create New Report
+				{hasIncomplete ? "Processing..." : "Create New Report"}
 			</Button>
 
 			<Modal
@@ -79,6 +86,14 @@ export function IssueFormModal({ onReportGenerated }: IssueFormModalProps) {
 						),
 					}}
 				/>
+
+				{hasIncomplete && (
+					<Alert color="yellow" mb="md">
+						You have an ongoing analysis. Please wait for it to
+						finish before starting a new one.
+					</Alert>
+				)}
+
 				<IssueForm
 					onReportGenerated={(reportId) => {
 						setOpened(false);
@@ -86,6 +101,7 @@ export function IssueFormModal({ onReportGenerated }: IssueFormModalProps) {
 					}}
 					isAnalysisRunning={isAnalysisRunning}
 					setIsAnalysisRunning={setIsAnalysisRunning}
+					disabled={hasIncomplete}
 				/>
 			</Modal>
 		</>
