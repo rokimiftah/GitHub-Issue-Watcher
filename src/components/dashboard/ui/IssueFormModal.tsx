@@ -3,7 +3,14 @@ import type { Id } from "@convex/_generated/dataModel";
 
 import { useState } from "react";
 
-import { Button, LoadingOverlay, Modal } from "@mantine/core";
+import {
+	Button,
+	Center,
+	Loader,
+	LoadingOverlay,
+	Modal,
+	Text,
+} from "@mantine/core";
 
 import { IssueForm } from "./IssueForm";
 
@@ -40,6 +47,7 @@ export function IssueFormModal({ onReportGenerated }: IssueFormModalProps) {
 				styles={{
 					content: {
 						border: "1px solid #4a4a4a",
+						position: "relative",
 					},
 					title: {
 						textAlign: "center",
@@ -49,7 +57,27 @@ export function IssueFormModal({ onReportGenerated }: IssueFormModalProps) {
 			>
 				<LoadingOverlay
 					visible={isAnalysisRunning}
-					overlayProps={{ blur: 2 }}
+					overlayProps={{ blur: 10 }}
+					loaderProps={{
+						children: (
+							<Center
+								style={{
+									display: "flex",
+									flexDirection: "column",
+									alignItems: "center",
+									gap: "10px",
+									minHeight: "100%",
+									marginTop: "40px",
+								}}
+							>
+								<Loader color="blue" size="sm" type="dots" />
+								<Text c="blue" size="sm" ta="center">
+									Processing batch... Partial report will be
+									emailed soon.
+								</Text>
+							</Center>
+						),
+					}}
 				/>
 				<IssueForm
 					onReportGenerated={(reportId) => {

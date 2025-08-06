@@ -47,6 +47,18 @@ export function ReportsList({ reportId, setReportId }: ReportsListProps) {
 							partial results.
 						</Text>
 					)}
+					<Text c="dimmed" size="sm">
+						Last Fetched:{" "}
+						{new Date(selectedReport.lastFetched).toLocaleString()}
+					</Text>
+					<Text c="dimmed" size="sm">
+						Results for this repository and keyword are cached for 1
+						hour.
+					</Text>
+					<Text c="dimmed" size="sm" mb="lg">
+						Data will be refreshed automatically after this period
+						when you submit the same repository and keyword.
+					</Text>
 					<IssuesTable reportId={reportId} />
 				</>
 			)}

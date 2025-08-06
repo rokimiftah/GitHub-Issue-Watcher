@@ -85,11 +85,6 @@ export function IssueForm({
 					{error}
 				</Text>
 			)}
-			{isAnalysisRunning && (
-				<Text c="blue" mb="md" size="sm" ta="center">
-					Processing batch... Partial report will be emailed soon.
-				</Text>
-			)}
 			<form onSubmit={form.onSubmit(handleSubmit)} className="space-y-4">
 				<TextInput
 					label="GitHub Repository URL"

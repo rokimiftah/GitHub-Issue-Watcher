@@ -172,7 +172,7 @@ export const storeIssues = action({
 
 			if (
 				existingReport?.isComplete &&
-				Date.now() - existingReport.lastFetched < 24 * 60 * 60 * 1000
+				Date.now() - existingReport.lastFetched < 1 * 60 * 60 * 1000
 			) {
 				return existingReport._id;
 			}
