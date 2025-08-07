@@ -38,6 +38,7 @@ export default defineSchema({
 		isComplete: v.boolean(),
 		emailsSent: v.optional(v.number()),
 		requestCounter: v.optional(v.number()),
+		failedAnalyses: v.optional(v.number()),
 	})
 		.index("userEmail", ["userEmail"])
 		.index("userId", ["userId"])

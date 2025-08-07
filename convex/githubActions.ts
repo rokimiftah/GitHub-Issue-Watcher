@@ -32,26 +32,34 @@ export const fetchIssuesBatch = action({
 			});
 
 			const query = `
-        query($owner: String!, $repo: String!, $batchSize: Int!, $after: String) {
-          repository(owner: $owner, name: $repo) {
-            issues(first: $batchSize, states: [OPEN, CLOSED], after: $after) {
-              nodes {
-                id
-                number
-                title
-                body
-                labels(first: 10) { nodes { name } }
-                createdAt
-              }
-              pageInfo { endCursor, hasNextPage }
-            }
-          }
-          rateLimit {
-            remaining
-            resetAt
+query ($owner: String!, $repo: String!, $batchSize: Int!, $after: String) {
+  repository(owner: $owner, name: $repo) {
+    issues(first: $batchSize, states: [OPEN, CLOSED], after: $after) {
+      nodes {
+        id
+        number
+        title
+        body
+        labels(first: 10) {
+          nodes {
+            name
           }
         }
-      `;
+        createdAt
+        state
+      }
+      pageInfo {
+        endCursor
+        hasNextPage
+      }
+    }
+  }
+  rateLimit {
+    remaining
+    resetAt
+  }
+}
+				`;
 
 			type GitHubIssue = {
 				id: string;
@@ -60,6 +68,7 @@ export const fetchIssuesBatch = action({
 				body: string | null;
 				labels: { nodes: { name: string }[] };
 				createdAt: string;
+				state: "OPEN" | "CLOSED";
 			};
 
 			const response: {
