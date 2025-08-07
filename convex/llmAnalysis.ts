@@ -1,38 +1,31 @@
 /** biome-ignore-all lint/suspicious/noExplicitAny: <> */
 
 import { ConvexError, v } from "convex/values";
-import Groq from "groq-sdk";
+
+import Cerebras from "@cerebras/cerebras_cloud_sdk";
 
 import { api } from "./_generated/api";
 import { action } from "./_generated/server";
 
-const ISSUES_PER_BATCH = 3;
-const DELAY_MS = 2_000;
-const MAX_CONCURRENT = 2;
-const MAX_RETRIES = 3;
-
-const MODELS = [
-	process.env.GROQ_MODEL_1,
-	process.env.GROQ_MODEL_2,
-	process.env.GROQ_MODEL_3,
-	process.env.GROQ_MODEL_4,
-	process.env.GROQ_MODEL_5,
-].filter(Boolean);
-
-function pickModel(counter: number): string {
-	const validModels = MODELS.filter((model) => model && model.trim() !== "");
-	if (validModels.length === 0) {
-		throw new Error("No valid models configured");
-	}
-	return validModels[counter % validModels.length] as string;
+interface CerebrasStreamChunk {
+	choices: Array<{
+		delta?: {
+			content?: string;
+		};
+	}>;
+	headers?: Record<string, string>;
 }
+
+const ISSUES_PER_BATCH = 5;
+const DELAY_MS = 1_500;
+const MAX_CONCURRENT = 3;
+const MAX_RETRIES = 3;
 
 function extractAndParseJSON(text: string): {
 	relevanceScore: number;
 	explanation: string;
 } {
 	try {
-		// Coba parsing langsung
 		const parsed = JSON.parse(text);
 		if (parsed.relevanceScore && parsed.explanation) {
 			return {
@@ -44,7 +37,6 @@ function extractAndParseJSON(text: string): {
 			};
 		}
 	} catch {
-		// Coba extract dengan regex
 		const scoreMatch = text.match(/"relevanceScore"\s*:\s*(\d+(?:\.\d+)?)/);
 		const explanationMatch = text.match(/"explanation"\s*:\s*"([^"]*)"/);
 
@@ -57,42 +49,41 @@ function extractAndParseJSON(text: string): {
 				explanation: explanationMatch[1].substring(0, 200),
 			};
 		}
-
-		// Jika tidak ada angka yang valid, kembalikan nilai default
-		return { relevanceScore: 0, explanation: "Unable to analyze" };
 	}
 
 	return { relevanceScore: 0, explanation: "Unable to analyze" };
 }
 
-// Safe analysis dengan retry
 async function safeAnalyzeIssue(
-	groq: Groq,
+	cerebras: Cerebras,
 	prompt: string,
 	model: string,
 	issue: any,
-	_keyword: string,
 ): Promise<{ relevanceScore: number; explanation: string }> {
+	let fullResponse = "";
 	for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
 		try {
-			const chatCompletion = await groq.chat.completions.create({
+			const stream = await cerebras.chat.completions.create({
 				messages: [{ role: "user", content: prompt }],
 				model,
 				temperature: 0.1,
-				max_tokens: 150,
+				max_completion_tokens: 150,
+				stream: true,
 			});
 
-			const raw = chatCompletion.choices[0]?.message?.content?.trim();
+			for await (const chunk of stream as AsyncIterable<CerebrasStreamChunk>) {
+				const content = chunk.choices[0]?.delta?.content || "";
+				fullResponse += content;
+			}
 
-			if (!raw) {
+			if (!fullResponse) {
 				throw new Error("Empty response");
 			}
 
-			console.log(`[AI Response] Issue #${issue.number}:`, raw);
+			console.log(`[AI Response] Issue #${issue.number}:`, fullResponse);
 
-			const result = extractAndParseJSON(raw);
+			const result = extractAndParseJSON(fullResponse);
 
-			// Validasi hasil
 			if (
 				typeof result.relevanceScore === "number" &&
 				result.relevanceScore >= 0 &&
@@ -103,7 +94,7 @@ async function safeAnalyzeIssue(
 			}
 
 			throw new Error("Invalid analysis format");
-		} catch (error) {
+		} catch (error: any) {
 			console.error(
 				`[Analysis Error] Issue #${issue.number}, Attempt ${attempt}:`,
 				error,
@@ -119,8 +110,11 @@ async function safeAnalyzeIssue(
 				};
 			}
 
-			// Exponential backoff
-			await new Promise((resolve) => setTimeout(resolve, 1000 * attempt));
+			// Fallback to exponential backoff
+			const retryAfter = error.response?.headers?.["retry-after"]
+				? parseInt(error.response.headers["retry-after"]) * 1000
+				: 1000 * attempt;
+			await new Promise((resolve) => setTimeout(resolve, retryAfter));
 		}
 	}
 
@@ -137,12 +131,12 @@ export const analyzeIssues = action({
 
 		if (!report) throw new ConvexError("Report not found");
 
-		const groqApiKey = process.env.GROQ_API_KEY;
-		if (!groqApiKey) throw new ConvexError("GROQ_API_KEY is not set");
+		const cerebrasApiKey = process.env.CEREBRAS_API_KEY;
+		if (!cerebrasApiKey)
+			throw new ConvexError("CEREBRAS_API_KEY is not set");
 
-		const groq = new Groq({ apiKey: groqApiKey });
-		const counter = report.requestCounter || 0;
-		const model = pickModel(counter);
+		const cerebras = new Cerebras({ apiKey: cerebrasApiKey });
+		const model = process.env.LLM_MODEL as string;
 
 		const issuesToAnalyze = report.issues
 			.filter(
@@ -184,20 +178,14 @@ export const analyzeIssues = action({
 						Issue Title: ${issue.title}
 						Issue Body: ${issue.body || "No description"}
 						Issue Labels: ${issue.labels.join(", ")}
-
-						Provide a JSON response with:
-						- relevanceScore: A number between 0 and 100 indicating relevance.
-						- explanation: A short explanation (1-2 sentences) of why the issue is relevant or not.
 						
-						Return ONLY valid JSON:
-						{"relevanceScore": <number 0-100>, "explanation": "<Brief reason>"}`;
+						RESPOND ONLY WITH: {"relevanceScore": 75, "explanation": "Brief reason"}`;
 
 					return await safeAnalyzeIssue(
-						groq,
+						cerebras,
 						prompt,
 						model,
 						issue,
-						keyword,
 					);
 				}),
 			);
@@ -223,13 +211,11 @@ export const analyzeIssues = action({
 				}
 			});
 
-			// Small delay between concurrent batches
 			if (i + MAX_CONCURRENT < issuesToAnalyze.length) {
-				await new Promise((resolve) => setTimeout(resolve, 500));
+				await new Promise((resolve) => setTimeout(resolve, DELAY_MS));
 			}
 		}
 
-		// Update report
 		await ctx.runMutation(api.githubIssues.incrementRequestCounter, {
 			reportId,
 		});
@@ -269,7 +255,7 @@ export const analyzeIssues = action({
 	},
 });
 
-// Tambahan: Action untuk retry failed analyses
+// Action retry failed analyses
 export const retryFailedAnalyses = action({
 	args: { reportId: v.id("reports"), keyword: v.string() },
 	handler: async (ctx, args) => {
