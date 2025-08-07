@@ -34,7 +34,7 @@ export const fetchIssuesBatch = action({
 			const query = `
         query($owner: String!, $repo: String!, $batchSize: Int!, $after: String) {
           repository(owner: $owner, name: $repo) {
-            issues(first: $batchSize, states: OPEN, after: $after) {
+            issues(first: $batchSize, states: [OPEN, CLOSED], after: $after) {
               nodes {
                 id
                 number
