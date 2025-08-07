@@ -286,8 +286,21 @@ export function AuthenticationForm() {
 				className="w-full max-w-md"
 				aria-labelledby="auth-title"
 			>
-				<Text id="auth-title" size="md" fw={700} ta="center" mb="xl">
+				<Text id="auth-title" size="md" fw={700} ta="center" mb="lg">
 					GitHub Issue Watcher
+				</Text>
+
+				<Text
+					id="auth-title"
+					size="sm"
+					fw={400}
+					ta="center"
+					mb="xl"
+					c="dimmed"
+				>
+					The system has migrated to Convex Self-Hosted.
+					<br />
+					Please re-register to continue.
 				</Text>
 
 				{(type === "signIn" || type === "signUp") && (
