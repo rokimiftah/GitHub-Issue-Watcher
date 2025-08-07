@@ -290,21 +290,22 @@ export function AuthenticationForm() {
 					GitHub Issue Watcher
 				</Text>
 
-				<Text
-					id="auth-title"
-					size="sm"
-					fw={400}
-					ta="center"
-					mb="xl"
-					c="dimmed"
-				>
-					The system has migrated to Convex Self-Hosted.
-					<br />
-					Please re-register to continue.
-				</Text>
-
 				{(type === "signIn" || type === "signUp") && (
 					<>
+						{type === "signIn" && (
+							<Text
+								id="auth-title"
+								size="sm"
+								fw={400}
+								ta="center"
+								mb="xl"
+								c="dimmed"
+							>
+								The system has migrated to Convex Self-Hosted.
+								<br />
+								Please re-register to continue.
+							</Text>
+						)}
 						<Group grow mb="md" mt="md">
 							<GitHubButton
 								radius="xl"
