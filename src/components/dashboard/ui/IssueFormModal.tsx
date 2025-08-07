@@ -1,4 +1,6 @@
 // src/components/dashboard/ui/IssueFormModal.tsx
+import type { Id } from "@convex/_generated/dataModel";
+
 import { useState } from "react";
 
 import { useQuery } from "convex/react";
@@ -17,7 +19,7 @@ import {
 import { IssueForm } from "./IssueForm";
 
 interface IssueFormModalProps {
-	onReportGenerated: (reportId: string) => void;
+	onReportGenerated: (reportId: Id<"reports">) => void;
 }
 
 export function IssueFormModal({ onReportGenerated }: IssueFormModalProps) {
