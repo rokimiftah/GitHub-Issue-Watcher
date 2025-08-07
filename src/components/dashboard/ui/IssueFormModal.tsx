@@ -1,4 +1,3 @@
-// src/components/dashboard/ui/IssueFormModal.tsx
 import type { Id } from "@convex/_generated/dataModel";
 
 import { useState } from "react";
@@ -37,7 +36,9 @@ export function IssueFormModal({ onReportGenerated }: IssueFormModalProps) {
 				disabled={hasIncomplete || isAnalysisRunning}
 				className="bg-[#f5d90a] text-[#111110] transition-all duration-200 hover:bg-[#f5d90ae6]"
 			>
-				{hasIncomplete ? "Processing..." : "Create New Report"}
+				{hasIncomplete || isAnalysisRunning
+					? "Processing..."
+					: "Create New Report"}
 			</Button>
 
 			<Modal

@@ -147,18 +147,49 @@ export const analyzeIssues = action({
 			)
 			.slice(0, ISSUES_PER_BATCH);
 
+		console.log(
+			`[analyzeIssues] Report ${reportId}: issuesToAnalyze=${issuesToAnalyze.length}, isComplete=${report.isComplete}, batchCursor=${report.batchCursor}`,
+		);
+
 		if (issuesToAnalyze.length === 0) {
 			console.log(
-				`[Analysis Complete] All issues analyzed for report ${reportId}`,
+				`[analyzeIssues] No issues to analyze for report ${reportId}`,
 			);
-			await ctx.runAction(api.resend.sendReportEmail.sendReportEmail, {
-				reportId,
-			});
+			const allUnanalyzedIssues = report.issues.filter(
+				(i) =>
+					i.relevanceScore === 0 &&
+					(i.explanation === "" ||
+						i.explanation.includes("Analysis failed")),
+			).length;
+			const isComplete = !report.batchCursor && allUnanalyzedIssues === 0;
+
+			if (isComplete && !report.isComplete) {
+				console.log(
+					`[analyzeIssues] Marking report ${reportId} as complete`,
+				);
+				await ctx.runMutation(api.githubIssues.updateReport, {
+					reportId,
+					issues: report.issues,
+					batchCursor: undefined,
+					isComplete: true,
+				});
+			}
+
+			console.log(
+				`[analyzeIssues] Scheduling email for report ${reportId}`,
+			);
+			await ctx.scheduler.runAfter(
+				0,
+				api.resend.sendReportEmail.sendReportEmail,
+				{
+					reportId,
+				},
+			);
 			return;
 		}
 
 		console.log(
-			`[Processing] Analyzing ${issuesToAnalyze.length} issues with model: ${model}`,
+			`[Processing] Analyzing ${issuesToAnalyze.length} issues with model: ${model} for report ${reportId}`,
 		);
 
 		const updatedIssues = [...report.issues];
@@ -170,16 +201,16 @@ export const analyzeIssues = action({
 			const results = await Promise.allSettled(
 				batch.map(async (issue) => {
 					const prompt = `
-						Analyze the following GitHub issue for relevance to the keyword '${keyword}' (case-insensitive). 
-						Evaluate the issue's title, body, labels, and comments for direct mentions, synonyms, or related concepts to the keyword, 
-						allowing for flexible interpretation to capture broader relevance. 
-						Consider variations in case (e.g., "auth", "Auth", "AUTH") as the same keyword.
-						
-						Issue Title: ${issue.title}
-						Issue Body: ${issue.body || "No description"}
-						Issue Labels: ${issue.labels.join(", ")}
-						
-						RESPOND ONLY WITH: {"relevanceScore": 75, "explanation": "Brief reason"}`;
+                        Analyze the following GitHub issue for relevance to the keyword '${keyword}' (case-insensitive). 
+                        Evaluate the issue's title, body, labels, and comments for direct mentions, synonyms, or related concepts to the keyword, 
+                        allowing for flexible interpretation to capture broader relevance. 
+                        Consider variations in case (e.g., "auth", "Auth", "AUTH") as the same keyword.
+                        
+                        Issue Title: ${issue.title}
+                        Issue Body: ${issue.body || "No description"}
+                        Issue Labels: ${issue.labels.join(", ")}
+                        
+                        RESPOND ONLY WITH: {"relevanceScore": 75, "explanation": "Brief reason"}`;
 
 					return await safeAnalyzeIssue(
 						cerebras,
@@ -220,24 +251,29 @@ export const analyzeIssues = action({
 			reportId,
 		});
 
-		await ctx.runMutation(api.githubIssues.updateReport, {
-			reportId,
-			issues: updatedIssues,
-			batchCursor: report.batchCursor,
-			isComplete: report.isComplete,
-		});
-
-		// Check remaining issues
-		const remaining = updatedIssues.filter(
+		const allUnanalyzedIssues = updatedIssues.filter(
 			(i) =>
 				i.relevanceScore === 0 &&
 				(i.explanation === "" ||
 					i.explanation.includes("Analysis failed")),
 		).length;
+		const isComplete = !report.batchCursor && allUnanalyzedIssues === 0;
 
-		console.log(`[Progress] ${remaining} issues remaining for analysis`);
+		await ctx.runMutation(api.githubIssues.updateReport, {
+			reportId,
+			issues: updatedIssues,
+			batchCursor: report.batchCursor,
+			isComplete,
+		});
 
-		if (remaining > 0) {
+		console.log(
+			`[analyzeIssues] Report ${reportId}: ${allUnanalyzedIssues} issues remaining, isComplete: ${isComplete}`,
+		);
+
+		if (allUnanalyzedIssues > 0) {
+			console.log(
+				`[analyzeIssues] Scheduling analysis for remaining issues for report ${reportId}`,
+			);
 			await ctx.scheduler.runAfter(
 				DELAY_MS,
 				api.llmAnalysis.analyzeIssues,
@@ -247,10 +283,16 @@ export const analyzeIssues = action({
 				},
 			);
 		} else {
-			console.log(`[Complete] All issues analyzed, sending report email`);
-			await ctx.runAction(api.resend.sendReportEmail.sendReportEmail, {
-				reportId,
-			});
+			console.log(
+				`[analyzeIssues] All issues analyzed for report ${reportId}, scheduling email`,
+			);
+			await ctx.scheduler.runAfter(
+				0,
+				api.resend.sendReportEmail.sendReportEmail,
+				{
+					reportId,
+				},
+			);
 		}
 	},
 });

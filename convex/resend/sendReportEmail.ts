@@ -36,12 +36,19 @@ export const sendReportEmail = action({
 			.filter((issue: Issue) => issue.relevanceScore > 50)
 			.sort((a, b) => b.relevanceScore - a.relevanceScore);
 
+		console.log(
+			`[sendReportEmail] Report ${args.reportId}: isComplete=${report.isComplete}, relevantIssues=${relevantIssues.length}, batchCursor=${report.batchCursor}`,
+		);
+
 		if (relevantIssues.length === 0) {
 			console.log(
-				`[EMAIL EMPTY] No relevant issues for ${report.repoUrl}`,
+				`[sendReportEmail] No relevant issues for report ${args.reportId}`,
 			);
-			// Lanjutkan ke batch berikutnya walaupun kosong
+			// Schedule next batch if not complete and cursor exists
 			if (!report.isComplete && report.batchCursor) {
+				console.log(
+					`[sendReportEmail] Scheduling next batch for report ${args.reportId}`,
+				);
 				await ctx.scheduler.runAfter(
 					0,
 					api.githubIssues.processNextBatch,
@@ -78,11 +85,14 @@ export const sendReportEmail = action({
 			});
 
 			console.log(
-				`[EMAIL SENT] ${emailType}${batchNumber} - ${relevantIssues.length} issues`,
+				`[EMAIL SENT] ${emailType}${batchNumber} - ${relevantIssues.length} issues for report ${args.reportId}`,
 			);
 
-			// Lanjutkan fetch berikutnya jika masih ada halaman
+			// Schedule next batch if not complete and cursor exists
 			if (!report.isComplete && report.batchCursor) {
+				console.log(
+					`[sendReportEmail] Scheduling next batch for report ${args.reportId}`,
+				);
 				await ctx.scheduler.runAfter(
 					0,
 					api.githubIssues.processNextBatch,
@@ -92,6 +102,10 @@ export const sendReportEmail = action({
 				);
 			}
 		} catch (error) {
+			console.error(
+				`[sendReportEmail] Error sending email for report ${args.reportId}:`,
+				error,
+			);
 			throw new ConvexError(
 				error instanceof Error
 					? error.message.includes("GitHub authentication failed")
