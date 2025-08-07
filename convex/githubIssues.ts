@@ -156,10 +156,13 @@ export const storeIssues = action({
 			throw new ConvexError("Invalid GitHub repository URL");
 		}
 
+		const normalizedKeyword = keyword.toLowerCase();
+
 		const existingReport = await ctx.runQuery(
 			api.githubIssues.getReportByRepoAndKeyword,
-			{ repoUrl, keyword },
+			{ repoUrl, keyword: normalizedKeyword },
 		);
+
 		if (
 			existingReport?.isComplete &&
 			Date.now() - existingReport.lastFetched < 1 * 60 * 60 * 1000

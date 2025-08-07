@@ -51,7 +51,7 @@ export function IssueForm({
 		try {
 			const newReportId = await storeIssues({
 				repoUrl: values.repoUrl,
-				keyword: values.keyword,
+				keyword: values.keyword.toLowerCase(),
 				userEmail: currentUser.email,
 			});
 			onReportGenerated(newReportId as Id<"reports">);

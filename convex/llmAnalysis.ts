@@ -54,8 +54,18 @@ export const analyzeIssues = action({
 		for (const issue of issuesToAnalyze) {
 			try {
 				const prompt = `
-					Analyze the following GitHub issue for relevance to the keyword '${keyword}'. Evaluate the issue's title, body, labels, and comments for direct mentions, synonyms, or related concepts to the keyword, allowing for flexible interpretation to capture broader relevance. Issue Title: ${issue.title}\nIssue Body: ${issue.body || "No body provided"}\nIssue Labels: ${issue.labels || "No labels provided"}\n\nReturn ONLY valid JSON:\n{\"relevanceScore\": <number 0-100>, \"explanation\": \"<1-2 sentence reason>\"}
-					`.trim();
+					Analyze the following GitHub issue for relevance to the keyword '${keyword}' (case-insensitive). 
+					Evaluate the issue's title, body, labels, and comments for direct mentions, synonyms, or related concepts to the keyword, 
+					allowing for flexible interpretation to capture broader relevance. 
+					Consider variations in case (e.g., "auth", "Auth", "AUTH") as the same keyword.
+					
+					Issue Title: ${issue.title}
+					Issue Body: ${issue.body || "No body provided"}
+					Issue Labels: ${issue.labels || "No labels provided"}
+					
+					Return ONLY valid JSON:
+					{"relevanceScore": <number 0-100>, "explanation": "<1-2 sentence reason>"}
+				`.trim();
 
 				const chatCompletion = await groq.chat.completions.create({
 					messages: [{ role: "user", content: prompt }],
