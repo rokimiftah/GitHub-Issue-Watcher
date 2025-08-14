@@ -1,0 +1,66 @@
+name: GitHub Actions
+
+on:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: true
+
+jobs:
+  Build-and-Deploy:
+    runs-on: ubuntu-latest
+
+    env:
+      CONVEX_SELF_HOSTED_ADMIN_KEY: ${{ secrets.CONVEX_SELF_HOSTED_ADMIN_KEY }}
+      CONVEX_SELF_HOSTED_URL: ${{ secrets.CONVEX_SELF_HOSTED_URL }}
+
+    steps:
+      - name: Set up SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_ed25519
+          chmod 400 ~/.ssh/id_ed25519
+          ssh-keyscan ${{ secrets.SSH_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "lts/*"
+
+      - name: Install, build and archive
+        run: |
+          npm install
+          npx convex deploy --cmd-url-env-var-name PUBLIC_CONVEX_URL --cmd "npm run build"
+          tar -czf build.tar.gz -C dist .
+
+      - name: Upload build to VPS
+        run: |
+          scp -i ~/.ssh/id_ed25519 build.tar.gz ${{secrets.SSH_USER}}@${{ secrets.SSH_HOST }}:${{ secrets.TARGET_DIRECTORY }}/uploads/build.tar.gz
+
+      - name: Deploy application on VPS
+        env:
+          BASE: ${{ secrets.TARGET_DIRECTORY }}
+          REL: release-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
+        run: |
+          ssh -i ~/.ssh/id_ed25519 ${{secrets.SSH_USER}}@${{ secrets.SSH_HOST }} "
+            set -euo pipefail
+
+            mkdir -p \"${BASE}/releases/${REL}\"
+            tar -xzf \"${BASE}/uploads/build.tar.gz\" -C \"${BASE}/releases/${REL}\"
+            
+            find \"${BASE}/releases/${REL}\" -type d -exec chmod 755 {} \;
+            find \"${BASE}/releases/${REL}\" -type f -exec chmod 644 {} \;
+
+            ln -sfn \"${BASE}/releases/${REL}\" \"${BASE}/current\"
+
+            rm -f \"${BASE}/uploads/build.tar.gz\"
+            ls -1dt \"${BASE}/releases/\"*/ | tail -n +6 | xargs -r rm -rf
+
+            rm -rf ~/.cache ~/.local/share/zsh/chpwd-recent-dirs ~/.zsh_history ~/.z
+          "

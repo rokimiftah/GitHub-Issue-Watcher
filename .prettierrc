@@ -1,0 +1,36 @@
+{
+	"astroAllowShorthand": true,
+
+	"importOrder": [
+		"<TYPES>",
+		"<TYPES>^(node:)",
+		"<TYPES>^[.]",
+		"",
+		"<BUILTIN_MODULES>",
+		"",
+		"^react(-dom)?(/.*)?$",
+		"",
+		"<THIRD_PARTY_MODULES>",
+		"",
+		"^@components/react(/.*)?$",
+		"",
+		"^@.*$",
+		"",
+		"^(?!.*[.]css$)[./].*$",
+		"",
+		".css$"
+	],
+
+	"importOrderParserPlugins": ["typescript", "jsx", "decorators"],
+
+	"importOrderTypeScriptVersion": "5.0.0",
+
+	"plugins": [
+		"@ianvs/prettier-plugin-sort-imports",
+		"prettier-plugin-tailwindcss"
+	],
+
+	"tabWidth": 4,
+
+	"useTabs": true
+}

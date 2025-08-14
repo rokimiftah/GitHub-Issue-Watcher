@@ -1,0 +1,17 @@
+@import "tailwind-preset-mantine";
+
+:root[data-mantine-color-scheme="dark"] body {
+	--mantine-color-body: #111110;
+}
+
+/* src/index.css atau Dashboard.css */
+@media (max-width: 768px) {
+	.mantine-Table-root {
+		font-size: 14px;
+	}
+
+	.mantine-Table-th,
+	.mantine-Table-td {
+		padding: 8px;
+	}
+}

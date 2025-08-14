@@ -1,0 +1,35 @@
+{
+	"compilerOptions": {
+		/* Projects */
+		"target": "es2020",
+		"lib": ["DOM", "ES2020"],
+		"jsx": "react-jsx",
+		"useDefineForClassFields": true,
+
+		/* Modules */
+		"module": "esnext",
+		"moduleResolution": "bundler",
+		"baseUrl": ".",
+		"paths": {
+			"@components/dashboard": ["src/components/dashboard/Dashboard"],
+			"@components/home": ["src/components/home/Home"],
+			"@convex/*": ["convex/*"]
+		},
+		"allowImportingTsExtensions": true,
+		"resolveJsonModule": true,
+
+		/* Emit */
+		"noEmit": true,
+		"verbatimModuleSyntax": true,
+
+		/* Type Checking */
+		"strict": true,
+		"noUnusedLocals": true,
+		"noUnusedParameters": true,
+
+		/* Completeness */
+		"skipLibCheck": true
+	},
+
+	"include": ["src"]
+}
