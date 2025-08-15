@@ -182,9 +182,7 @@ export const storeIssues = action({
 		let reportId: Id<"reports">;
 		if (existingReport) {
 			reportId = existingReport._id;
-			console.log(
-				`[storeIssues] Updating report ${reportId}, hasNextPage: ${pageInfo.hasNextPage}`,
-			);
+
 			await ctx.runMutation(api.githubIssues.updateReport, {
 				reportId,
 				issues: [...existingReport.issues, ...issues],
@@ -204,9 +202,6 @@ export const storeIssues = action({
 					: undefined,
 				isComplete: false, // Initial report is not complete
 			});
-			console.log(
-				`[storeIssues] Created new report ${reportId}, hasNextPage: ${pageInfo.hasNextPage}`,
-			);
 		}
 
 		// Schedule analysis for the fetched issues
@@ -226,13 +221,7 @@ export const processNextBatch = action({
 			reportId: args.reportId,
 		});
 		if (!report || report.isComplete || !report.batchCursor) {
-			console.log(
-				`[processNextBatch] Report ${args.reportId}: isComplete=${report?.isComplete}, batchCursor=${report?.batchCursor}`,
-			);
 			if (report?.isComplete) {
-				console.log(
-					`[processNextBatch] Sending final email for report ${args.reportId}`,
-				);
 				await ctx.runAction(
 					api.resend.sendReportEmail.sendReportEmail,
 					{
@@ -254,10 +243,6 @@ export const processNextBatch = action({
 			},
 		);
 
-		console.log(
-			`[processNextBatch] Fetched ${issues.length} issues for report ${args.reportId}, hasNextPage: ${pageInfo.hasNextPage}`,
-		);
-
 		const allIssues = [...report.issues, ...issues];
 
 		await ctx.runMutation(api.githubIssues.updateReport, {
@@ -266,10 +251,6 @@ export const processNextBatch = action({
 			batchCursor: pageInfo.hasNextPage ? pageInfo.endCursor : undefined,
 			isComplete: false, // Keep isComplete false until analysis confirms completion
 		});
-
-		console.log(
-			`[processNextBatch] Updated report ${args.reportId}, hasNextPage: ${pageInfo.hasNextPage}`,
-		);
 
 		// Schedule analysis for the new batch
 		await ctx.scheduler.runAfter(0, api.llmAnalysis.analyzeIssues, {
@@ -302,9 +283,6 @@ export const checkIncompleteReport = query({
 			.filter((q) => q.eq(q.field("isComplete"), false))
 			.first();
 
-		console.log(
-			`[checkIncompleteReport] hasIncomplete: ${!!incomplete}, userId: ${userId}`,
-		);
 		return { hasIncomplete: !!incomplete };
 	},
 });
