@@ -49,8 +49,6 @@ jobs:
           REL: release-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
         run: |
           ssh -i ~/.ssh/id_ed25519 ${{secrets.SSH_USER}}@${{ secrets.SSH_HOST }} "
-            set -euo pipefail
-
             mkdir -p \"${BASE}/releases/${REL}\"
             tar -xzf \"${BASE}/uploads/build.tar.gz\" -C \"${BASE}/releases/${REL}\"
             
