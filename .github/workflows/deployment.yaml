@@ -41,24 +41,15 @@ jobs:
 
       - name: Upload build to VPS
         run: |
-          scp -i ~/.ssh/id_ed25519 build.tar.gz ${{secrets.SSH_USER}}@${{ secrets.SSH_HOST }}:${{ secrets.TARGET_DIRECTORY }}/uploads/build.tar.gz
+          scp -i ~/.ssh/id_ed25519 build.tar.gz ${{secrets.SSH_USER}}@${{ secrets.SSH_HOST }}:${{ secrets.TARGET_DIRECTORY }}/build.tar.gz
 
       - name: Deploy application on VPS
-        env:
-          BASE: ${{ secrets.TARGET_DIRECTORY }}
-          REL: release-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
         run: |
           ssh -i ~/.ssh/id_ed25519 ${{secrets.SSH_USER}}@${{ secrets.SSH_HOST }} "
-            mkdir -p \"${BASE}/releases/${REL}\"
-            tar -xzf \"${BASE}/uploads/build.tar.gz\" -C \"${BASE}/releases/${REL}\"
-            
-            find \"${BASE}/releases/${REL}\" -type d -exec chmod 755 {} \;
-            find \"${BASE}/releases/${REL}\" -type f -exec chmod 644 {} \;
-
-            ln -sfn \"${BASE}/releases/${REL}\" \"${BASE}/current\"
-
-            rm -f \"${BASE}/uploads/build.tar.gz\"
-            ls -1dt \"${BASE}/releases/\"*/ | tail -n +6 | xargs -r rm -rf
-
+            cd ${{ secrets.TARGET_DIRECTORY }}
+            ls | grep -v 'build.tar.gz' | xargs rm -rf
+            tar -xzvf build.tar.gz
+            rm -rf build.tar.gz
+            caddy reload -c /etc/caddy/Caddyfile
             rm -rf ~/.cache ~/.local/share/zsh/chpwd-recent-dirs ~/.zsh_history ~/.z
           "
