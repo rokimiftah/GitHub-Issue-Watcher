@@ -5,7 +5,7 @@ import { Button } from "@mantine/core";
 export function SignOut() {
 	const { signOut } = useAuthActions();
 	return (
-		<Button variant="outline" color="red" onClick={() => void signOut()}>
+		<Button variant="light" color="red" onClick={() => void signOut()}>
 			Sign Out
 		</Button>
 	);
