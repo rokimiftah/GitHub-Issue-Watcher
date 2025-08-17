@@ -8,23 +8,25 @@ import { getAuthUserId } from "@convex-dev/auth/server";
 import { api } from "./_generated/api";
 import { action, mutation, query } from "./_generated/server";
 
+const IssueArg = v.object({
+	id: v.string(),
+	number: v.number(),
+	title: v.string(),
+	body: v.string(),
+	labels: v.array(v.string()),
+	createdAt: v.string(),
+	relevanceScore: v.number(),
+	explanation: v.string(),
+	matchedTerms: v.optional(v.array(v.string())),
+	evidence: v.optional(v.array(v.string())),
+});
+
 export const saveReport = mutation({
 	args: {
 		repoUrl: v.string(),
 		keyword: v.string(),
 		userEmail: v.string(),
-		issues: v.array(
-			v.object({
-				id: v.string(),
-				number: v.number(),
-				title: v.string(),
-				body: v.string(),
-				labels: v.array(v.string()),
-				createdAt: v.string(),
-				relevanceScore: v.number(),
-				explanation: v.string(),
-			}),
-		),
+		issues: v.array(IssueArg),
 		batchCursor: v.optional(v.string()),
 		isComplete: v.boolean(),
 	},
@@ -70,18 +72,7 @@ export const saveReport = mutation({
 export const updateReport = mutation({
 	args: {
 		reportId: v.id("reports"),
-		issues: v.array(
-			v.object({
-				id: v.string(),
-				number: v.number(),
-				title: v.string(),
-				body: v.string(),
-				labels: v.array(v.string()),
-				createdAt: v.string(),
-				relevanceScore: v.number(),
-				explanation: v.string(),
-			}),
-		),
+		issues: v.array(IssueArg),
 		batchCursor: v.optional(v.string()),
 		isComplete: v.boolean(),
 		requestCounter: v.optional(v.number()),

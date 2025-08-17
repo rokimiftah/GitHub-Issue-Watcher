@@ -30,6 +30,8 @@ export default defineSchema({
 				createdAt: v.string(),
 				relevanceScore: v.number(),
 				explanation: v.string(),
+				matchedTerms: v.optional(v.array(v.string())),
+				evidence: v.optional(v.array(v.string())),
 			}),
 		),
 		createdAt: v.number(),

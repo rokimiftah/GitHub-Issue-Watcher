@@ -111,6 +111,8 @@ query ($owner: String!, $repo: String!, $batchSize: Int!, $after: String) {
 					createdAt: issue.createdAt,
 					relevanceScore: 0,
 					explanation: "",
+					matchedTerms: [],
+					evidence: [],
 				}),
 			);
 

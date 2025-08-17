@@ -22,37 +22,64 @@ const DELAY_MS = 1_500;
 const MAX_CONCURRENT = 3;
 const MAX_RETRIES = 3;
 
+function enforceNonMultipleOfFive(n: number, salt: number): number {
+	if (!Number.isFinite(n)) return 0;
+	const clamped = Math.max(0, Math.min(100, Math.round(n)));
+	if (clamped === 0 || clamped === 100) return clamped;
+	if (clamped % 5 !== 0) return clamped;
+	// Shear +1 or -1 deterministic based on "salt" (eg issue.number)
+	return salt % 2 === 0
+		? Math.min(100, clamped + 1)
+		: Math.max(0, clamped - 1);
+}
+
+function stripFences(s: string): string {
+	// Discard the possibility of `` `json ...` ``
+	return s
+		.replace(/^\s*```(?:json)?/i, "")
+		.replace(/```\s*$/, "")
+		.trim();
+}
+
+function endWithPeriod(s: string) {
+	const t = s.trim();
+	return /[.!?]$/.test(t) ? t : `${t}.`;
+}
+
 function extractAndParseJSON(text: string): {
 	relevanceScore: number;
 	explanation: string;
+	matchedTerms?: string[];
+	evidence?: string[];
 } {
+	const clean = stripFences(text);
 	try {
-		const parsed = JSON.parse(text);
-		if (parsed.relevanceScore && parsed.explanation) {
-			return {
-				relevanceScore: Math.max(
-					0,
-					Math.min(100, Number(parsed.relevanceScore)),
-				),
-				explanation: String(parsed.explanation).substring(0, 200),
-			};
-		}
+		const j = JSON.parse(clean);
+		const raw = Number(j.relevanceScore ?? 0);
+		const score = Number.isFinite(raw)
+			? Math.max(0, Math.min(100, raw))
+			: 0;
+
+		const expl = String(j.explanation ?? "").slice(0, 260);
+
+		return {
+			relevanceScore: score,
+			explanation: endWithPeriod(expl),
+			matchedTerms: Array.isArray(j.matchedTerms)
+				? j.matchedTerms.slice(0, 6)
+				: [],
+			evidence: Array.isArray(j.evidence) ? j.evidence.slice(0, 4) : [],
+		};
 	} catch {
-		const scoreMatch = text.match(/"relevanceScore"\s*:\s*(\d+(?:\.\d+)?)/);
-		const explanationMatch = text.match(/"explanation"\s*:\s*"([^"]*)"/);
-
-		if (scoreMatch && explanationMatch) {
-			return {
-				relevanceScore: Math.max(
-					0,
-					Math.min(100, parseInt(scoreMatch[1])),
-				),
-				explanation: explanationMatch[1].substring(0, 200),
-			};
-		}
+		const m = clean.match(/"relevanceScore"\s*:\s*(\d+)/);
+		const e = clean.match(/"explanation"\s*:\s*"([^"]{0,260})"/);
+		return {
+			relevanceScore: m ? Math.max(0, Math.min(100, +m[1])) : 0,
+			explanation: endWithPeriod(e?.[1] ?? "Unable to analyze"),
+			matchedTerms: [],
+			evidence: [],
+		};
 	}
-
-	return { relevanceScore: 0, explanation: "Unable to analyze" };
 }
 
 async function safeAnalyzeIssue(
@@ -60,15 +87,20 @@ async function safeAnalyzeIssue(
 	prompt: string,
 	model: string,
 	issue: any,
-): Promise<{ relevanceScore: number; explanation: string }> {
+): Promise<{
+	relevanceScore: number;
+	explanation: string;
+	matchedTerms?: string[];
+	evidence?: string[];
+}> {
 	let fullResponse = "";
 	for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
 		try {
 			const stream = await cerebras.chat.completions.create({
 				messages: [{ role: "user", content: prompt }],
 				model,
-				temperature: 0.1,
-				max_completion_tokens: 150,
+				temperature: 0.3,
+				max_completion_tokens: 260,
 				stream: true,
 			});
 
@@ -77,49 +109,38 @@ async function safeAnalyzeIssue(
 				fullResponse += content;
 			}
 
-			if (!fullResponse) {
-				throw new Error("Empty response");
-			}
+			if (!fullResponse) throw new Error("Empty response");
 
-			console.log(`[AI Response] Issue #${issue.number}:`, fullResponse);
+			const parsed = extractAndParseJSON(fullResponse);
 
-			const result = extractAndParseJSON(fullResponse);
-
-			if (
-				typeof result.relevanceScore === "number" &&
-				result.relevanceScore >= 0 &&
-				result.relevanceScore <= 100 &&
-				result.explanation
-			) {
-				return result;
-			}
-
-			throw new Error("Invalid analysis format");
-		} catch (error: any) {
-			console.error(
-				`[Analysis Error] Issue #${issue.number}, Attempt ${attempt}:`,
-				error,
+			parsed.relevanceScore = enforceNonMultipleOfFive(
+				parsed.relevanceScore,
+				issue.number,
 			);
 
+			return parsed;
+		} catch (error: any) {
 			if (attempt === MAX_RETRIES) {
-				console.log(
-					`[Failure] Max retries reached for Issue #${issue.number}, returning default`,
-				);
 				return {
 					relevanceScore: 0,
 					explanation: "Analysis failed after retries",
+					matchedTerms: [],
+					evidence: [],
 				};
 			}
-
-			// Fallback to exponential backoff
 			const retryAfter = error.response?.headers?.["retry-after"]
 				? parseInt(error.response.headers["retry-after"]) * 1000
 				: 1000 * attempt;
-			await new Promise((resolve) => setTimeout(resolve, retryAfter));
+			await new Promise((r) => setTimeout(r, retryAfter));
 		}
 	}
 
-	return { relevanceScore: 0, explanation: "Analysis failed after retries" };
+	return {
+		relevanceScore: 0,
+		explanation: "Analysis failed after retries",
+		matchedTerms: [],
+		evidence: [],
+	};
 }
 
 export const analyzeIssues = action({
@@ -202,16 +223,23 @@ export const analyzeIssues = action({
 			const results = await Promise.allSettled(
 				batch.map(async (issue) => {
 					const prompt = `
-                        Analyze the following GitHub issue for relevance to the keyword '${keyword}' (case-insensitive). 
-                        Evaluate the issue's title, body, labels, and comments for direct mentions, synonyms, or related concepts to the keyword, 
-                        allowing for flexible interpretation to capture broader relevance. 
-                        Consider variations in case (e.g., "auth", "Auth", "AUTH") as the same keyword.
-                        
-                        Issue Title: ${issue.title}
-                        Issue Body: ${issue.body || "No description"}
-                        Issue Labels: ${issue.labels.join(", ")}
-                        
-                        RESPOND ONLY WITH: {"relevanceScore": 75, "explanation": "Brief reason"}`;
+						You are ranking GitHub issues for relevance to the keyword: "${keyword}".
+
+						Rules:
+						- Consider TITLE (weight 0.45), BODY (0.35), LABELS (0.20).
+						- Accept synonyms, inflections, and aliases of the keyword.
+						- Prefer concrete evidence (error messages, repro steps, API names).
+						- EXPLANATION MUST BE 1-2 COMPLETE SENTENCES (not fragments), 80-220 characters, referencing where the match was found (title/body/labels) and why it's relevant.
+						- Output strictly MINIFIED JSON (no markdown, no extra text).
+
+						Respond ONLY with:
+						{"relevanceScore": <0-100 integer not a multiple of 5>, "explanation": "<1-2 sentences, 80-220 chars>", "matchedTerms": ["..."], "evidence": ["<short excerpt or reason>"]}
+
+						Issue:
+						TITLE: ${issue.title}
+						LABELS: ${issue.labels.join(", ") || "none"}
+						BODY:
+						${(issue.body || "").slice(0, 3000)}`;
 
 					return await safeAnalyzeIssue(
 						cerebras,
@@ -229,15 +257,26 @@ export const analyzeIssues = action({
 
 				if (idx !== -1) {
 					if (result.status === "fulfilled") {
+						const {
+							relevanceScore,
+							explanation,
+							matchedTerms,
+							evidence,
+						} = result.value;
 						updatedIssues[idx] = {
 							...updatedIssues[idx],
-							...result.value,
+							relevanceScore,
+							explanation,
+							matchedTerms: matchedTerms ?? [],
+							evidence: evidence ?? [],
 						};
 					} else {
 						updatedIssues[idx] = {
 							...updatedIssues[idx],
 							relevanceScore: 0,
 							explanation: "Analysis temporarily unavailable",
+							matchedTerms: [],
+							evidence: [],
 						};
 					}
 				}
