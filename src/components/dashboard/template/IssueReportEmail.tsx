@@ -1,4 +1,5 @@
 // src/components/dashboard/template/IssueReportEmail.tsx
+
 import type { Doc } from "../../../../convex/_generated/dataModel";
 
 interface EmailTemplateProps {

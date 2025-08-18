@@ -1,4 +1,5 @@
 // src/components/auth/ui/PasswordStrength.tsx
+
 import { useMemo } from "react";
 
 import { Card, Center, Group, Progress, Text } from "@mantine/core";

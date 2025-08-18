@@ -1,4 +1,5 @@
 // src/components/auth/ui/UserInfo.tsx
+
 import { Group } from "@mantine/core";
 
 import { SignOut } from "./SignOut";

@@ -1,4 +1,5 @@
 // src/components/auth/ui/GitHubButton.tsx
+
 import type {
 	ButtonFactory,
 	ButtonProps,

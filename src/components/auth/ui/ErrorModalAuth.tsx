@@ -1,4 +1,5 @@
 // src/components/auth/ui/ErrorModalAuth.tsx
+
 import { useEffect } from "react";
 
 import { Alert, Modal } from "@mantine/core";

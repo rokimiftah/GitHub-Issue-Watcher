@@ -1,4 +1,5 @@
 // src/components/dashboard/ui/ErrorModalDashboard.tsx
+
 import { Button, Modal, Text } from "@mantine/core";
 
 export interface ErrorModalProps {

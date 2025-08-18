@@ -1,4 +1,5 @@
 // src/components/auth/ui/SignOut.tsx
+
 import { useAuthActions } from "@convex-dev/auth/react";
 import { Button } from "@mantine/core";
 

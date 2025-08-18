@@ -1,4 +1,5 @@
 // src/components/auth/AuthenticationForm.tsx
+
 import { useCallback, useState } from "react";
 
 import { ConvexReactClient } from "convex/react";

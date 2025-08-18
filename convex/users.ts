@@ -1,4 +1,5 @@
 // convex/users.ts
+
 import { ConvexError, v } from "convex/values";
 
 import { getAuthUserId } from "@convex-dev/auth/server";
