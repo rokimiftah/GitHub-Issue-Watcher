@@ -33,7 +33,7 @@ export function ReportsList({ reportId, setReportId }: ReportsListProps) {
 				placeholder="Choose a report to view"
 				data={reports?.map((report: Doc<"reports">) => ({
 					value: report._id,
-					label: `${report.repoUrl} - ${report.keyword} (${report.isComplete ? "Complete" : "Processing"})`,
+					label: `${report.repoUrl} - ${report.keyword.toLowerCase()} (${report.isComplete ? "complete" : "processing"})`,
 				}))}
 				value={reportId}
 				onChange={(value) => setReportId(value as Id<"reports"> | null)}

@@ -100,8 +100,16 @@ export function IssueForm({
 					label="Keyword"
 					placeholder="e.g., authentication"
 					{...form.getInputProps("keyword")}
+					value={form.values.keyword}
+					onChange={(e) =>
+						form.setFieldValue(
+							"keyword",
+							e.currentTarget.value.toLowerCase(),
+						)
+					}
 					className="w-full"
 					disabled={isAnalysisRunning}
+					styles={{ input: { textTransform: "lowercase" } }}
 				/>
 				<Group justify="flex-end">
 					<Button

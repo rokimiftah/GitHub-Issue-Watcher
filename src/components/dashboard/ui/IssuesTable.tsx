@@ -18,10 +18,8 @@ import {
 } from "@mantine/core";
 import { IconInfoCircle } from "@tabler/icons-react";
 
-// Helper: highlight matched terms di evidence
 function highlight(text: string, terms: string[]) {
 	if (!text || terms.length === 0) return text;
-	// Create regex OR, escape special character
 	const escaped = terms
 		.filter(Boolean)
 		.map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));

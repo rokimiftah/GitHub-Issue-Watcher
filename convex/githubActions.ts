@@ -14,6 +14,11 @@ export const fetchIssuesBatch = action({
 	},
 	handler: async (_ctx, args) => {
 		const { repoUrl, batchSize, after } = args;
+		console.log("[GIW][fetchIssuesBatch] start", {
+			repoUrl,
+			batchSize,
+			after,
+		});
 
 		const githubToken = process.env.GITHUB_TOKEN;
 		if (!githubToken) {
@@ -26,6 +31,7 @@ export const fetchIssuesBatch = action({
 		if (!owner || !repo) {
 			throw new ConvexError("Invalid repository URL");
 		}
+		console.log("[GIW][fetchIssuesBatch] owner/repo", { owner, repo });
 
 		try {
 			const graphqlWithAuth = graphql.defaults({
@@ -33,34 +39,34 @@ export const fetchIssuesBatch = action({
 			});
 
 			const query = `
-query ($owner: String!, $repo: String!, $batchSize: Int!, $after: String) {
-  repository(owner: $owner, name: $repo) {
-    issues(first: $batchSize, states: [OPEN, CLOSED], after: $after) {
-      nodes {
-        id
-        number
-        title
-        body
-        labels(first: 10) {
-          nodes {
-            name
-          }
-        }
-        createdAt
-        state
-      }
-      pageInfo {
-        endCursor
-        hasNextPage
-      }
-    }
-  }
-  rateLimit {
-    remaining
-    resetAt
-  }
-}
-				`;
+				query ($owner: String!, $repo: String!, $batchSize: Int!, $after: String) {
+					repository(owner: $owner, name: $repo) {
+						issues(first: $batchSize, states: [OPEN, CLOSED], after: $after) {
+							nodes {
+								id
+								number
+								title
+								body
+								labels(first: 10) {
+									nodes {
+										name
+									}
+								}
+								createdAt
+								state
+							}
+							pageInfo {
+								endCursor
+								hasNextPage
+							}
+						}
+					}
+					rateLimit {
+						remaining
+						resetAt
+					}
+				}
+			`;
 
 			type GitHubIssue = {
 				id: string;
@@ -72,6 +78,7 @@ query ($owner: String!, $repo: String!, $batchSize: Int!, $after: String) {
 				state: "OPEN" | "CLOSED";
 			};
 
+			const t0 = Date.now();
 			const response: {
 				repository: {
 					issues: {
@@ -88,16 +95,23 @@ query ($owner: String!, $repo: String!, $batchSize: Int!, $after: String) {
 				after,
 			});
 
-			console.log(
-				`Rate limit remaining: ${response.rateLimit.remaining}, resets at: ${response.rateLimit.resetAt}`,
-			);
+			const resetAtIso = response.rateLimit.resetAt;
+			const resetAtMs = new Date(resetAtIso).getTime();
+			const dt = Date.now() - t0;
+
+			console.log("[GIW][fetchIssuesBatch] rateLimit", {
+				remaining: response.rateLimit.remaining,
+				resetAt: resetAtIso,
+				durationMs: dt,
+			});
 
 			if (response.rateLimit.remaining < 100) {
-				const resetTime = new Date(
-					response.rateLimit.resetAt,
-				).getTime();
-				const delay = resetTime - Date.now();
+				const delay = resetAtMs - Date.now();
 				if (delay > 0) {
+					console.log(
+						"[GIW][fetchIssuesBatch] nearing RL → sleep(ms)",
+						delay,
+					);
 					await new Promise((resolve) => setTimeout(resolve, delay));
 				}
 			}
