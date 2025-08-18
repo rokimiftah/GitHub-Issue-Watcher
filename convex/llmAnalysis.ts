@@ -17,14 +17,12 @@ function enforceNonMultipleOfFive(n: number, salt: number): number {
 	const clamped = Math.max(0, Math.min(100, Math.round(n)));
 	if (clamped === 0 || clamped === 100) return clamped;
 	if (clamped % 5 !== 0) return clamped;
-	// Shear +1 or -1 deterministic based on "salt" (eg issue.number)
 	return salt % 2 === 0
 		? Math.min(100, clamped + 1)
 		: Math.max(0, clamped - 1);
 }
 
 function stripFences(s: string): string {
-	// Discard the possibility of `` `json ...` ``
 	return s
 		.replace(/^\s*```(?:json)?/i, "")
 		.replace(/```\s*$/, "")
@@ -49,9 +47,7 @@ function extractAndParseJSON(text: string): {
 		const score = Number.isFinite(raw)
 			? Math.max(0, Math.min(100, raw))
 			: 0;
-
 		const expl = String(j.explanation ?? "").slice(0, 260);
-
 		return {
 			relevanceScore: score,
 			explanation: endWithPeriod(expl),
@@ -86,6 +82,11 @@ async function safeAnalyzeIssue(
 	let fullResponse = "";
 	for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
 		try {
+			console.log("[GIW][LLM] request", {
+				issueNo: issue.number,
+				attempt,
+				model,
+			});
 			const stream = await openai.chat.completions.create({
 				model,
 				messages: [{ role: "user", content: prompt }],
@@ -109,6 +110,11 @@ async function safeAnalyzeIssue(
 
 			return parsed;
 		} catch (error: any) {
+			console.warn("[GIW][LLM] error", {
+				issueNo: issue.number,
+				attempt,
+				message: String(error?.message ?? error),
+			});
 			if (attempt === MAX_RETRIES) {
 				return {
 					relevanceScore: 0,
@@ -120,6 +126,7 @@ async function safeAnalyzeIssue(
 			const retryAfter = error.response?.headers?.["retry-after"]
 				? parseInt(error.response.headers["retry-after"]) * 1000
 				: 1000 * attempt;
+			console.log("[GIW][LLM] backoff(ms)", retryAfter);
 			await new Promise((r) => setTimeout(r, retryAfter));
 		}
 	}
@@ -136,6 +143,7 @@ export const analyzeIssues = action({
 	args: { reportId: v.id("reports"), keyword: v.string() },
 	handler: async (ctx, args) => {
 		const { reportId, keyword } = args;
+		console.log("[GIW][analyzeIssues] start", { reportId, keyword });
 		const report = await ctx.runQuery(api.githubIssues.getReport, {
 			reportId,
 		});
@@ -158,14 +166,15 @@ export const analyzeIssues = action({
 			)
 			.slice(0, ISSUES_PER_BATCH);
 
-		console.log(
-			`[analyzeIssues] Report ${reportId}: issuesToAnalyze=${issuesToAnalyze.length}, isComplete=${report.isComplete}, batchCursor=${report.batchCursor}`,
-		);
+		console.log("[GIW][analyzeIssues] plan", {
+			pick: issuesToAnalyze.length,
+			hasCursor: !!report.batchCursor,
+		});
 
 		if (issuesToAnalyze.length === 0) {
-			console.log(
-				`[analyzeIssues] No issues to analyze for report ${reportId}`,
-			);
+			console.log("[GIW][analyzeIssues] no issues to analyze", {
+				hasCursor: !!report.batchCursor,
+			});
 			const allUnanalyzedIssues = report.issues.filter(
 				(i) =>
 					i.relevanceScore === 0 &&
@@ -175,9 +184,9 @@ export const analyzeIssues = action({
 			const isComplete = !report.batchCursor && allUnanalyzedIssues === 0;
 
 			if (isComplete && !report.isComplete) {
-				console.log(
-					`[analyzeIssues] Marking report ${reportId} as complete`,
-				);
+				console.log("[GIW][analyzeIssues] Marking complete", {
+					reportId,
+				});
 				await ctx.runMutation(api.githubIssues.updateReport, {
 					reportId,
 					issues: report.issues,
@@ -187,7 +196,10 @@ export const analyzeIssues = action({
 			}
 
 			console.log(
-				`[analyzeIssues] Scheduling email for report ${reportId}`,
+				"[GIW][analyzeIssues] email scheduled (no pending issues)",
+				{
+					reportId,
+				},
 			);
 			await ctx.scheduler.runAfter(
 				0,
@@ -205,36 +217,38 @@ export const analyzeIssues = action({
 
 		const updatedIssues = [...report.issues];
 
-		// Process issues in small batches
 		for (let i = 0; i < issuesToAnalyze.length; i += MAX_CONCURRENT) {
 			const batch = issuesToAnalyze.slice(i, i + MAX_CONCURRENT);
+			console.log("[GIW][analyzeIssues] chunk", {
+				from: i,
+				size: batch.length,
+			});
 
 			const results = await Promise.allSettled(
 				batch.map(async (issue) => {
 					const prompt = `
-						You are ranking GitHub issues for relevance to the keyword: "${keyword}".
+                        You are ranking GitHub issues for relevance to the keyword: "${keyword}".
 
-						Rules:
-						- Consider TITLE (weight 0.45), BODY (0.35), LABELS (0.20).
-						- Accept synonyms, inflections, and aliases of the keyword.
-						- Prefer concrete evidence (error messages, repro steps, API names).
-						- EXPLANATION MUST BE 1-2 COMPLETE SENTENCES (not fragments), 80-220 characters, referencing where the match was found (title/body/labels) and why it's relevant.
-						- Output strictly MINIFIED JSON (no markdown, no extra text).
+                        Rules:
+                        - Consider TITLE (weight 0.45), BODY (0.35), LABELS (0.20).
+                        - Accept synonyms, inflections, and aliases of the keyword.
+                        - Prefer concrete evidence (error messages, repro steps, API names).
+                        - EXPLANATION MUST BE 1-2 COMPLETE SENTENCES (not fragments), 80-220 characters, referencing where the match was found (title/body/labels) and why it's relevant.
+                        - Output strictly MINIFIED JSON (no markdown, no extra text).
 
-						Respond ONLY with:
-						{"relevanceScore": <0-100 integer not a multiple of 5>, "explanation": "<1-2 sentences, 80-220 chars>", "matchedTerms": ["..."], "evidence": ["<short excerpt or reason>"]}
+                        Respond ONLY with:
+                        {"relevanceScore": <0-100 integer not a multiple of 5>, "explanation": "<1-2 sentences, 80-220 chars>", "matchedTerms": ["..."], "evidence": ["<short excerpt or reason>"]}
 
-						Issue:
-						TITLE: ${issue.title}
-						LABELS: ${issue.labels.join(", ") || "none"}
-						BODY:
-						${(issue.body || "").slice(0, 3000)}`;
+                        Issue:
+                        TITLE: ${issue.title}
+                        LABELS: ${issue.labels.join(", ") || "none"}
+                        BODY:
+                        ${(issue.body || "").slice(0, 3000)}`;
 
 					return await safeAnalyzeIssue(openai, prompt, model, issue);
 				}),
 			);
 
-			// Process results
 			results.forEach((result, index) => {
 				const issue = batch[index];
 				const idx = updatedIssues.findIndex((i) => i.id === issue.id);
@@ -274,6 +288,7 @@ export const analyzeIssues = action({
 		await ctx.runMutation(api.githubIssues.incrementRequestCounter, {
 			reportId,
 		});
+		console.log("[GIW][analyzeIssues] requestCounter++", { reportId });
 
 		const allUnanalyzedIssues = updatedIssues.filter(
 			(i) =>
@@ -289,15 +304,12 @@ export const analyzeIssues = action({
 			batchCursor: report.batchCursor,
 			isComplete,
 		});
-
-		console.log(
-			`[analyzeIssues] Report ${reportId}: ${allUnanalyzedIssues} issues remaining, isComplete: ${isComplete}`,
-		);
+		console.log("[GIW][analyzeIssues] patched", {
+			remaining: allUnanalyzedIssues,
+			isComplete,
+		});
 
 		if (allUnanalyzedIssues > 0) {
-			console.log(
-				`[analyzeIssues] Scheduling analysis for remaining issues for report ${reportId}`,
-			);
 			await ctx.scheduler.runAfter(
 				DELAY_MS,
 				api.llmAnalysis.analyzeIssues,
@@ -306,10 +318,10 @@ export const analyzeIssues = action({
 					keyword,
 				},
 			);
+			console.log("[GIW][analyzeIssues] rescheduled self", {
+				delayMs: DELAY_MS,
+			});
 		} else {
-			console.log(
-				`[analyzeIssues] All issues analyzed for report ${reportId}, scheduling email`,
-			);
 			await ctx.scheduler.runAfter(
 				0,
 				api.resend.sendReportEmail.sendReportEmail,
@@ -317,16 +329,19 @@ export const analyzeIssues = action({
 					reportId,
 				},
 			);
+			console.log("[GIW][analyzeIssues] final email scheduled", {
+				reportId,
+			});
 		}
 	},
 });
 
-// Action retry failed analyses
 export const retryFailedAnalyses = action({
 	args: { reportId: v.id("reports"), keyword: v.string() },
 	handler: async (ctx, args) => {
 		console.log(
-			`[Retry] Attempting to retry failed analyses for report ${args.reportId}`,
+			"[GIW][Retry] Attempting to retry failed analyses",
+			args.reportId,
 		);
 		await ctx.runAction(api.llmAnalysis.analyzeIssues, {
 			reportId: args.reportId,
