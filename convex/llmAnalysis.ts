@@ -2,22 +2,12 @@
 /** biome-ignore-all lint/suspicious/noExplicitAny: <> */
 
 import { ConvexError, v } from "convex/values";
-
-import Cerebras from "@cerebras/cerebras_cloud_sdk";
+import OpenAI from "openai";
 
 import { api } from "./_generated/api";
 import { action } from "./_generated/server";
 
-interface CerebrasStreamChunk {
-	choices: Array<{
-		delta?: {
-			content?: string;
-		};
-	}>;
-	headers?: Record<string, string>;
-}
-
-const ISSUES_PER_BATCH = 5;
+const ISSUES_PER_BATCH = 3;
 const DELAY_MS = 1_500;
 const MAX_CONCURRENT = 3;
 const MAX_RETRIES = 3;
@@ -83,7 +73,7 @@ function extractAndParseJSON(text: string): {
 }
 
 async function safeAnalyzeIssue(
-	cerebras: Cerebras,
+	openai: OpenAI,
 	prompt: string,
 	model: string,
 	issue: any,
@@ -96,17 +86,16 @@ async function safeAnalyzeIssue(
 	let fullResponse = "";
 	for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
 		try {
-			const stream = await cerebras.chat.completions.create({
-				messages: [{ role: "user", content: prompt }],
+			const stream = await openai.chat.completions.create({
 				model,
+				messages: [{ role: "user", content: prompt }],
 				temperature: 0.3,
-				max_completion_tokens: 260,
+				max_tokens: 260,
 				stream: true,
 			});
 
-			for await (const chunk of stream as AsyncIterable<CerebrasStreamChunk>) {
-				const content = chunk.choices[0]?.delta?.content || "";
-				fullResponse += content;
+			for await (const chunk of stream) {
+				fullResponse += chunk.choices?.[0]?.delta?.content ?? "";
 			}
 
 			if (!fullResponse) throw new Error("Empty response");
@@ -153,11 +142,11 @@ export const analyzeIssues = action({
 
 		if (!report) throw new ConvexError("Report not found");
 
-		const cerebrasApiKey = process.env.CEREBRAS_API_KEY;
-		if (!cerebrasApiKey)
-			throw new ConvexError("CEREBRAS_API_KEY is not set");
+		const openai = new OpenAI({
+			apiKey: process.env.OPENAI_API_KEY,
+			baseURL: process.env.OPENAI_COMPATIBLE_BASE_URL,
+		});
 
-		const cerebras = new Cerebras({ apiKey: cerebrasApiKey });
 		const model = process.env.LLM_MODEL as string;
 
 		const issuesToAnalyze = report.issues
@@ -241,12 +230,7 @@ export const analyzeIssues = action({
 						BODY:
 						${(issue.body || "").slice(0, 3000)}`;
 
-					return await safeAnalyzeIssue(
-						cerebras,
-						prompt,
-						model,
-						issue,
-					);
+					return await safeAnalyzeIssue(openai, prompt, model, issue);
 				}),
 			);
 
