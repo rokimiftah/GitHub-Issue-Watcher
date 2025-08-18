@@ -1,3 +1,4 @@
+// src/components/dashboard/ui/IssuesTable.tsx
 
 import type { Id } from "@convex/_generated/dataModel";
 
