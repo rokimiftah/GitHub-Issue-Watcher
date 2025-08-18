@@ -1,4 +1,5 @@
 // convex/githubIssues.ts
+/** biome-ignore-all lint/suspicious/noExplicitAny: <> */
 
 import type { Id } from "./_generated/dataModel";
 
