@@ -295,7 +295,7 @@ export const processNextBatch = action({
 			return;
 		}
 
-		const batchSize = 100;
+		const batchSize = 50;
 
 		console.log("[GIW][processNextBatch] fetch next batch", {
 			repoUrl: report.repoUrl,
