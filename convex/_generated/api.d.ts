@@ -9,6 +9,7 @@
  */
 
 import type * as auth from "../auth.js";
+import type * as crons from "../crons.js";
 import type * as githubActions from "../githubActions.js";
 import type * as githubIssues from "../githubIssues.js";
 import type * as helpers from "../helpers.js";
@@ -16,6 +17,7 @@ import type * as http from "../http.js";
 import type * as llmAnalysis from "../llmAnalysis.js";
 import type * as llmClient from "../llmClient.js";
 import type * as llmWorker from "../llmWorker.js";
+import type * as queue from "../queue.js";
 import type * as rateLimiter from "../rateLimiter.js";
 import type * as resend_ResendOTP from "../resend/ResendOTP.js";
 import type * as resend_ResendOTPPasswordReset from "../resend/ResendOTPPasswordReset.js";
@@ -38,6 +40,7 @@ import type {
  */
 declare const fullApi: ApiFromModules<{
   auth: typeof auth;
+  crons: typeof crons;
   githubActions: typeof githubActions;
   githubIssues: typeof githubIssues;
   helpers: typeof helpers;
@@ -45,6 +48,7 @@ declare const fullApi: ApiFromModules<{
   llmAnalysis: typeof llmAnalysis;
   llmClient: typeof llmClient;
   llmWorker: typeof llmWorker;
+  queue: typeof queue;
   rateLimiter: typeof rateLimiter;
   "resend/ResendOTP": typeof resend_ResendOTP;
   "resend/ResendOTPPasswordReset": typeof resend_ResendOTPPasswordReset;

@@ -1,9 +1,16 @@
-// // convex/crons.ts
-// import { cronJobs } from "convex/server";
+// convex/crons.ts
 
-// import { internal } from "./_generated/api";
+import { cronJobs } from "convex/server";
 
-// const crons = cronJobs();
+import { internal } from "./_generated/api";
+
+const crons = cronJobs();
+
+crons.interval(
+	"vacuum analysis tasks",
+	{ hours: 12 },
+	internal.llmWorker.vacuumTasksCron,
+);
 
 // crons.daily(
 // 	"clean expired cache",
@@ -11,4 +18,4 @@
 // 	internal.llmAnalysis.cleanExpiredCache,
 // );
 
-// export default crons;
+export default crons;

@@ -1,12 +1,19 @@
 // convex/llmWorker.ts
+/** biome-ignore-all lint/style/noNonNullAssertion: <> */
 /** biome-ignore-all lint/suspicious/noExplicitAny: <> */
 
 import type { Id } from "./_generated/dataModel";
 
 import { ConvexError, v } from "convex/values";
 
-import { api } from "./_generated/api";
-import { action, mutation, query } from "./_generated/server";
+import { api, internal } from "./_generated/api";
+import {
+	action,
+	internalAction,
+	internalMutation,
+	mutation,
+	query,
+} from "./_generated/server";
 import { analyzeIssueOpenAIStyle } from "./llmClient";
 
 const MAX_CONCURRENT = 3;
@@ -102,26 +109,27 @@ export const enqueueAnalysisTasks = mutation({
 	},
 });
 
-export const getQueuedTasks = query({
-	args: { limit: v.number() },
+export const _listQueued = query({
+	args: { window: v.optional(v.number()) },
 	handler: async (ctx, args) => {
-		const all = await ctx.db
+		const WINDOW = args.window ?? 500; // kandidat maks.
+		const rows = await ctx.db
 			.query("analysis_tasks")
-			.withIndex("status_priority", (q) => q.eq("status", "queued"))
+			.withIndex("status_createdAt", (q) => q.eq("status", "queued"))
+			.order("asc") // paling tua dulu
 			.collect();
-		const selected = all
-			.sort(
-				(a: any, b: any) =>
-					a.priority - b.priority || a.createdAt - b.createdAt,
-			)
-			.slice(0, args.limit);
-		console.log(
-			"[GIW][getQueued] totalQueued:",
-			all.length,
-			"selected:",
-			selected.length,
-		);
-		return selected;
+
+		return rows.slice(0, WINDOW);
+	},
+});
+
+export const _listRunning = query({
+	args: {},
+	handler: async (ctx) => {
+		return await ctx.db
+			.query("analysis_tasks")
+			.withIndex("status_priority", (q) => q.eq("status", "running"))
+			.collect();
 	},
 });
 
@@ -244,13 +252,39 @@ export const countActiveTasksForReport = query({
 	},
 });
 
+async function withTimeout<T>(
+	p: Promise<T>,
+	ms: number,
+	label = "op",
+): Promise<T> {
+	let t: any;
+	try {
+		return await Promise.race([
+			p,
+			new Promise<T>((_, rej) => {
+				t = setTimeout(
+					() => rej(new Error(`${label} timeout after ${ms}ms`)),
+					ms,
+				);
+			}),
+		]);
+	} finally {
+		clearTimeout(t);
+	}
+}
+
 export const tick = action({
 	args: {},
 	handler: async (ctx) => {
+		const TICK_BUDGET_MS = 60_000; // total waktu 1 tick (60s)
+		const LLM_TIMEOUT_MS = 120_000; // timeout tiap panggilan LLM
+		const lockTtl = TICK_BUDGET_MS + 5_000; // TTL lock > budget
+		const tickStart = Date.now();
+
 		console.log("[GIW][tick] try acquire lock");
 		const got = await ctx.runMutation(api.llmWorker.acquireLock, {
 			name: "llm_worker",
-			ttlMs: 15000,
+			ttlMs: lockTtl,
 		});
 		console.log("[GIW][tick] acquire result:", got);
 		if (!got) return;
@@ -266,8 +300,8 @@ export const tick = action({
 				return;
 			}
 
-			const BATCH = Math.min(quota.maxRequests, 4);
-			const queued = await ctx.runQuery(api.llmWorker.getQueuedTasks, {
+			const BATCH = Math.max(1, Math.min(quota.maxRequests, 4));
+			const queued = await ctx.runQuery(api.queue.selectQueuedTasks, {
 				limit: BATCH,
 			});
 			console.log("[GIW][tick] queued selected", {
@@ -297,29 +331,43 @@ export const tick = action({
 					return;
 				}
 				console.log("[GIW][tick] nothing queued → sleep");
-				await ctx.scheduler.runAfter(10000, api.llmWorker.tick, {});
+				await ctx.scheduler.runAfter(10_000, api.llmWorker.tick, {});
 				return;
 			}
 
-			await ctx.runMutation(api.llmWorker.markTasksRunning, {
-				ids: queued.map((t) => t._id),
-			});
-
-			await ctx.runMutation(api.rateLimiter.consume, {
-				requests: queued.length,
-				tokens: queued.length * ESTIMATE_TOKENS_DEFAULT,
-			});
-
+			// === PROSES PER-CHUNK ===
 			for (let i = 0; i < queued.length; i += MAX_CONCURRENT) {
+				// budget guard: jangan biarkan tick melewati budget
+				if (Date.now() - tickStart > TICK_BUDGET_MS) {
+					console.log("[GIW][tick] budget reached → reschedule");
+					await ctx.scheduler.runAfter(500, api.llmWorker.tick, {});
+					return;
+				}
+
 				const chunk = queued.slice(i, i + MAX_CONCURRENT);
+
+				// Mark RUNNING & konsumsi kuota per-chunk (bukan sekaligus semua)
+				await ctx.runMutation(api.llmWorker.markTasksRunning, {
+					ids: chunk.map((t) => t._id),
+				});
+				await ctx.runMutation(api.rateLimiter.consume, {
+					requests: chunk.length,
+					tokens: chunk.length * ESTIMATE_TOKENS_DEFAULT,
+				});
+
+				// Jalankan paralel terbatas + timeout per panggilan LLM
 				await Promise.all(
 					chunk.map(async (task) => {
 						try {
-							const res = await analyzeIssueOpenAIStyle({
-								keyword: task.keyword,
-								issue: task.issue,
-								maxTokens: MAX_TOKENS,
-							});
+							const res = await withTimeout(
+								analyzeIssueOpenAIStyle({
+									keyword: task.keyword,
+									issue: task.issue,
+									maxTokens: MAX_TOKENS,
+								}),
+								LLM_TIMEOUT_MS,
+								`analyze #${task.issue.number}`,
+							);
 
 							await ctx.runMutation(
 								api.llmWorker.updateIssueResult,
@@ -351,6 +399,7 @@ export const tick = action({
 				);
 			}
 
+			// === Post-batch bookkeeping (tetap sama) ===
 			const touchedReportIds = Array.from(
 				new Set(queued.map((t) => String(t.reportId))),
 			);
@@ -370,7 +419,9 @@ export const tick = action({
 
 				const { total: activeTasks } = await ctx.runQuery(
 					api.llmWorker.countActiveTasksForReport,
-					{ reportId: rid },
+					{
+						reportId: rid,
+					},
 				);
 
 				console.log("[GIW][tick] post-batch state", {
@@ -456,5 +507,39 @@ export const cancelQueuedTasksForReport = mutation({
 			"for report",
 			String(args.reportId),
 		);
+	},
+});
+
+export const vacuumTasks = internalMutation({
+	args: { keepHours: v.number() },
+	handler: async (ctx, args) => {
+		const cutoff = Date.now() - args.keepHours * 3600_000;
+
+		const done = await ctx.db
+			.query("analysis_tasks")
+			.withIndex("status_priority", (q) => q.eq("status", "done"))
+			.collect();
+		const err = await ctx.db
+			.query("analysis_tasks")
+			.withIndex("status_priority", (q) => q.eq("status", "error"))
+			.collect();
+		const canceled = await ctx.db
+			.query("analysis_tasks")
+			.withIndex("status_priority", (q) => q.eq("status", "canceled"))
+			.collect();
+
+		for (const t of [...done, ...err, ...canceled]) {
+			if (t.updatedAt < cutoff) await ctx.db.delete(t._id);
+		}
+	},
+});
+
+export const vacuumTasksCron = internalAction({
+	args: {},
+	handler: async (ctx) => {
+		const KEEP_HOURS = 72; // atur sesuai kebutuhan
+		await ctx.runMutation(internal.llmWorker.vacuumTasks, {
+			keepHours: KEEP_HOURS,
+		});
 	},
 });

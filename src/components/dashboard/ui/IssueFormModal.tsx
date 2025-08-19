@@ -23,23 +23,32 @@ interface IssueFormModalProps {
 	onReportGenerated: (reportId: Id<"reports">) => void;
 }
 
+const MAX_ACTIVE_REPORTS = 3;
+
 export function IssueFormModal({ onReportGenerated }: IssueFormModalProps) {
 	const [opened, setOpened] = useState(false);
 	const [isAnalysisRunning, setIsAnalysisRunning] = useState(false);
 
-	const { hasIncomplete } = useQuery(
-		api.githubIssues.checkIncompleteReport,
-	) ?? { hasIncomplete: false };
+	// GANTI: dari checkIncompleteReport → getWorkloadStatus
+	const workload = useQuery(api.githubIssues.getWorkloadStatus) ?? {
+		openReports: 0,
+		queued: 0,
+		running: 0,
+	};
+	const { openReports, queued, running } = workload;
+	const atLimit = openReports >= MAX_ACTIVE_REPORTS;
 
 	return (
 		<>
 			<Button
 				onClick={() => setOpened(true)}
-				disabled={hasIncomplete || isAnalysisRunning}
+				disabled={
+					atLimit /* ← TIDAK lagi disable hanya karena ada proses */
+				}
 				className="bg-[#f5d90a] text-[#111110] transition-all duration-200 hover:bg-[#f5d90ae6]"
 			>
-				{hasIncomplete || isAnalysisRunning
-					? "Processing..."
+				{atLimit
+					? `Limit reached (${openReports}/${MAX_ACTIVE_REPORTS})`
 					: "Create New Report"}
 			</Button>
 
@@ -52,19 +61,13 @@ export function IssueFormModal({ onReportGenerated }: IssueFormModalProps) {
 				closeOnClickOutside={!isAnalysisRunning}
 				closeOnEscape={!isAnalysisRunning}
 				withCloseButton={false}
-				overlayProps={{
-					backgroundOpacity: 0.7,
-					blur: 5,
-				}}
+				overlayProps={{ backgroundOpacity: 0.7, blur: 5 }}
 				styles={{
 					content: {
 						border: "1px solid #4a4a4a",
 						position: "relative",
 					},
-					title: {
-						textAlign: "center",
-						width: "100%",
-					},
+					title: { textAlign: "center", width: "100%" },
 				}}
 			>
 				<LoadingOverlay
@@ -92,10 +95,18 @@ export function IssueFormModal({ onReportGenerated }: IssueFormModalProps) {
 					}}
 				/>
 
-				{hasIncomplete && (
+				{/* Info ringan status aktif, tanpa memblokir */}
+				<Alert color="gray" mb="md" variant="light" ta="center">
+					Active reports: <b>{openReports}</b> • Tasks:{" "}
+					<b>{queued}</b> queued / <b>{running}</b> running. Limit:{" "}
+					{MAX_ACTIVE_REPORTS}.
+				</Alert>
+
+				{atLimit && (
 					<Alert color="yellow" mb="md">
-						You have an ongoing analysis. Please wait for it to
-						finish before starting a new one.
+						You already have {openReports} active report(s).
+						Close/finish one to start another, or increase the
+						limit.
 					</Alert>
 				)}
 
@@ -106,7 +117,9 @@ export function IssueFormModal({ onReportGenerated }: IssueFormModalProps) {
 					}}
 					isAnalysisRunning={isAnalysisRunning}
 					setIsAnalysisRunning={setIsAnalysisRunning}
-					disabled={hasIncomplete}
+					disabled={
+						atLimit /* hanya diblokir saat benar-benar mencapai limit */
+					}
 				/>
 			</Modal>
 		</>

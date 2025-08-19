@@ -72,7 +72,8 @@ export default defineSchema({
 	})
 		.index("status_priority", ["status", "priority"])
 		.index("report_status", ["reportId", "status"])
-		.index("owner_status", ["ownerUserId", "status"]),
+		.index("owner_status", ["ownerUserId", "status"])
+		.index("status_createdAt", ["status", "createdAt"]),
 
 	rate_limits: defineTable({
 		bucket: v.string(),

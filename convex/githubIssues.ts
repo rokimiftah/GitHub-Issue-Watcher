@@ -445,3 +445,37 @@ export const setLastPartialCursor = mutation({
 		await ctx.db.patch(args.reportId, { lastPartialCursor: args.cursor });
 	},
 });
+
+export const getWorkloadStatus = query({
+	args: {},
+	handler: async (ctx) => {
+		const userId = await getAuthUserId(ctx);
+		if (!userId) return { openReports: 0, queued: 0, running: 0 };
+
+		const openReports = await ctx.db
+			.query("reports")
+			.withIndex("userId", (q) => q.eq("userId", userId))
+			.filter((q) => q.eq(q.field("isComplete"), false))
+			.collect();
+
+		const queued = await ctx.db
+			.query("analysis_tasks")
+			.withIndex("owner_status", (q) =>
+				q.eq("ownerUserId", userId).eq("status", "queued"),
+			)
+			.collect();
+
+		const running = await ctx.db
+			.query("analysis_tasks")
+			.withIndex("owner_status", (q) =>
+				q.eq("ownerUserId", userId).eq("status", "running"),
+			)
+			.collect();
+
+		return {
+			openReports: openReports.length,
+			queued: queued.length,
+			running: running.length,
+		};
+	},
+});
