@@ -20,7 +20,9 @@ import { ReportsList } from "./ui/ReportsList";
 
 import "./Dashboard.css";
 
-const convex = new ConvexReactClient(import.meta.env.PUBLIC_CONVEX_URL);
+const convex = new ConvexReactClient(import.meta.env.PUBLIC_CONVEX_URL, {
+	logger: false,
+});
 
 if (!import.meta.env.PUBLIC_CONVEX_URL) {
 	throw new Error("PUBLIC_CONVEX_URL is not defined in .env.local");

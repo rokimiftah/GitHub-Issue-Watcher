@@ -26,7 +26,9 @@ import { ErrorModalAuth } from "./ui/ErrorModalAuth";
 import { GitHubButton } from "./ui/GitHubButton";
 import { PasswordStrength } from "./ui/PasswordStrength";
 
-const convex = new ConvexReactClient(import.meta.env.PUBLIC_CONVEX_URL);
+const convex = new ConvexReactClient(import.meta.env.PUBLIC_CONVEX_URL, {
+	logger: false,
+});
 
 interface AuthFormValues {
 	email: string;
