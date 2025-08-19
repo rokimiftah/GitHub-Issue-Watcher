@@ -79,10 +79,6 @@ export function IssueForm({
 
 	return (
 		<div className="space-y-4">
-			<Text size="sm" c="dimmed" mb="md" ta="center">
-				Enter a GitHub repository URL and a keyword to generate an issue
-				report.
-			</Text>
 			{error && (
 				<Text c="red" mb="md" size="sm">
 					{error}
